@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+@layer antd, tailwind;
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Chamnenh semantic tokens ─────────────────────────────────────────────
+   Brand: #304A59 (primary), #142332 (secondary / ink).
+   Components use bg-surface / text-fg / border-line / bg-brand utilities so
+   one light/dark definition drives the whole app. */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-soft-foreground: var(--brand-soft-foreground);
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
+
+  --shadow-card: 0 1px 2px 0 rgb(20 35 50 / 0.05), 0 1px 3px 0 rgb(20 35 50 / 0.07);
+  --shadow-pop: 0 4px 16px -2px rgb(20 35 50 / 0.14);
+
+  --font-sans: var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-fira-code), ui-monospace, monospace;
+}
+
+:root {
+  --surface: #f4f6f8;
+  --surface-raised: #ffffff;
+  --surface-sunken: #e9edf0;
+  --surface-overlay: #ffffff;
+  --fg: #142332;
+  --fg-muted: #52677a;
+  --fg-subtle: #8195a6;
+  --line: #dde4e9;
+  --line-strong: #c3cfd8;
+  --brand: #304a59;
+  --brand-hover: #263c49;
+  --brand-foreground: #ffffff;
+  --brand-soft: #e6edf1;
+  --brand-soft-foreground: #26404e;
+  --ink: #142332;
+  --ink-foreground: #eef4f8;
+}
+
+.dark {
+  --surface: #0c1520;
+  --surface-raised: #142332;
+  --surface-sunken: #0a111a;
+  --surface-overlay: #1a2d40;
+  --fg: #e4ecf2;
+  --fg-muted: #9db0c0;
+  --fg-subtle: #6b8093;
+  --line: #23374a;
+  --line-strong: #2f4860;
+  --brand: #4e7288;
+  --brand-hover: #5d849b;
+  --brand-foreground: #ffffff;
+  --brand-soft: #1c3140;
+  --brand-soft-foreground: #a8c3d4;
+  --ink: #0e1a27;
+  --ink-foreground: #eef4f8;
+}
+
+html,
+body {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* Numbers, invoice ids, prices */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Toasts (react-toastify) ──────────────────────────────────────────────
+   Surface-token card with a status accent bar; follows .dark automatically.
+   Container props (drag to dismiss etc.) are set in app/layout.tsx. */
+:root {
+  --toastify-color-light: var(--surface-raised);
+  --toastify-text-color-light: var(--fg);
+  --toastify-font-family: var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif;
+  --toastify-toast-bd-radius: 12px;
+  --toastify-toast-min-height: 52px;
+}
+.Toastify__toast {
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 16px -2px rgb(20 35 50 / 0.14);
+  padding: 10px 12px;
+  align-items: center;
+  cursor: grab;
+}
+.Toastify__toast-body {
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.Toastify__toast--success { border-left: 4px solid #10b981; }
+.Toastify__toast--error   { border-left: 4px solid #f43f5e; }
+.Toastify__toast--warning { border-left: 4px solid #f59e0b; }
+.Toastify__toast--info    { border-left: 4px solid var(--brand); }
+.Toastify__progress-bar { height: 2px; opacity: 0.6; }
+.Toastify__close-button {
+  color: var(--fg-subtle);
+  opacity: 1;
+  align-self: center;
+}
+.Toastify__close-button:hover { color: var(--fg); }
+/* Small screens: full-width stack with breathing room */
+@media (max-width: 480px) {
+  .Toastify__toast-container {
+    padding: 8px;
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+  .Toastify__toast { margin-bottom: 8px; }
+}
+
+/* Receipt print: only the receipt area prints */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-receipt,
+  #print-receipt * {
+    visibility: visible;
+  }
+  #print-receipt {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 80mm;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

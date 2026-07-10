@@ -1,0 +1,174 @@
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  DollarSign, ReceiptText, Package, TrendingUp, AlertTriangle, ArrowRight,
+} from "lucide-react";
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
+} from "recharts";
+import api from "@/services/api";
+import { useRealtime } from "@/hooks/useRealtime";
+import { StatCard } from "@/components/ui/stat-card";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SectionHeader } from "@/components/ui/section-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { money, fmtDate } from "@/lib/format";
+import type { Sale } from "@/lib/types";
+
+interface DashboardData {
+  today: { invoice_count: number; revenue: number; avg_sale: number; profit: number; items_sold: number };
+  yesterday_revenue: number;
+  week_series: { period: string; revenue: number; invoice_count: number }[];
+  recent_sales: Sale[];
+  low_stock: { id: number; name: string; stock_qty: number; low_stock_alert: number }[];
+  counts: { products: number; clients: number };
+}
+
+export default function DashboardPage() {
+  const [data, setData] = useState<DashboardData | null>(null);
+
+  const load = useCallback(() => {
+    api.get("/reports/dashboard").then(({ data }) => setData(data)).catch(() => {});
+  }, []);
+
+  useEffect(load, [load]);
+  useRealtime(["sale:created", "sale:voided", "product:changed"], load);
+
+  const t = data?.today;
+  const diff =
+    data && Number(data.yesterday_revenue) > 0
+      ? ((Number(t?.revenue) - Number(data.yesterday_revenue)) / Number(data.yesterday_revenue)) * 100
+      : null;
+
+  return (
+    <div>
+      <SectionHeader
+        title="Dashboard"
+        subtitle="Live overview, updates in real time as sales happen"
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          title="Today's revenue"
+          value={money(t?.revenue)}
+          icon={DollarSign}
+          accent="brand"
+          hint={
+            diff === null ? "No sales yesterday" : (
+              <span className={diff >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                {diff >= 0 ? "+" : ""}{diff.toFixed(1)}% vs yesterday
+              </span>
+            )
+          }
+        />
+        <StatCard title="Invoices today" value={t?.invoice_count ?? 0} icon={ReceiptText} accent="emerald"
+          hint={`Average ${money(t?.avg_sale)}`} />
+        <StatCard title="Items sold today" value={t?.items_sold ?? 0} icon={Package} accent="amber"
+          hint={`${data?.counts.products ?? 0} products in inventory`} />
+        <StatCard title="Today's profit" value={money(t?.profit)} icon={TrendingUp} accent="rose"
+          hint="Revenue minus tax and cost" />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="rounded-xl border border-line bg-surface-raised p-4 shadow-card xl:col-span-2">
+          <h2 className="mb-3 font-medium text-fg">Revenue, last 14 days</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data?.week_series ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#304a59" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#304a59" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+                <XAxis dataKey="period" tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
+                  tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} width={48}
+                  tickFormatter={(v: number) => `$${v}`} />
+                <Tooltip
+                  formatter={(value) => [money(value as number), "Revenue"]}
+                  contentStyle={{
+                    background: "var(--surface-overlay)", border: "1px solid var(--line)",
+                    borderRadius: 8, color: "var(--fg)",
+                  }}
+                />
+                <Area type="monotone" dataKey="revenue" stroke="#4e7288" strokeWidth={2} fill="url(#rev)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface-raised p-4 shadow-card">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 font-medium text-fg">
+              <AlertTriangle className="h-4 w-4 text-amber-500" /> Low stock
+            </h2>
+            <Link href="/admin/inventory?low_stock=1"
+              className="flex items-center gap-1 text-sm text-brand transition-colors duration-200 hover:text-brand-hover dark:text-brand-soft-foreground">
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          {data && data.low_stock.length === 0 ? (
+            <p className="py-8 text-center text-sm text-fg-muted">All products are stocked up.</p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {data?.low_stock.map((p) => (
+                <li key={p.id} className="flex items-center justify-between py-2.5">
+                  <span className="truncate pr-2 text-sm text-fg">{p.name}</span>
+                  <StatusBadge status={p.stock_qty === 0 ? "out" : "low"}
+                    label={p.stock_qty === 0 ? "Out of stock" : `${p.stock_qty} left`} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-line bg-surface-raised shadow-card">
+        <div className="flex items-center justify-between border-b border-line p-4">
+          <h2 className="font-medium text-fg">Recent sales</h2>
+          <Link href="/admin/invoices"
+            className="flex items-center gap-1 text-sm text-brand transition-colors duration-200 hover:text-brand-hover dark:text-brand-soft-foreground">
+            All invoices <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        {data && data.recent_sales.length === 0 ? (
+          <div className="p-4">
+            <EmptyState title="No sales yet" description="Sales made in the POS will appear here instantly." />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-fg-subtle">
+                  <th className="px-4 py-2.5 font-medium">Invoice</th>
+                  <th className="px-4 py-2.5 font-medium">Client</th>
+                  <th className="px-4 py-2.5 font-medium">Cashier</th>
+                  <th className="px-4 py-2.5 font-medium">Payment</th>
+                  <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Total</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {data?.recent_sales.map((s) => (
+                  <tr key={s.id} className="transition-colors duration-150 hover:bg-surface-sunken">
+                    <td className="px-4 py-2.5 font-mono text-xs text-fg">{s.invoice_number}</td>
+                    <td className="px-4 py-2.5 text-fg-muted">{s.client_name || "Walk-in"}</td>
+                    <td className="px-4 py-2.5 text-fg-muted">{s.cashier_name}</td>
+                    <td className="px-4 py-2.5"><StatusBadge status={s.payment_method} /></td>
+                    <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>
+                    <td className="tabular px-4 py-2.5 text-right font-medium text-fg">{money(s.total)}</td>
+                    <td className="px-4 py-2.5 text-right text-fg-subtle">{fmtDate(s.created_at, "HH:mm, dd MMM")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
