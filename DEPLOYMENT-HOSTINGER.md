@@ -41,8 +41,10 @@ Deploy the API app alone first (steps 2 and 4) and confirm on the plan:
 
 1. The Node process stays alive and restarts after a crash (hit
    `https://api-lucaci.chomnenh.com/api/health` over a day).
-2. A repo **subdirectory** (`server/`) can be the app root. If hPanel only accepts
-   a repo root, fall back to ZIP deploys of each folder, or split into two repos.
+2. ~~A repo subdirectory (`server/`) can be the app root.~~ Confirmed NOT
+   supported (2026-07-13): hPanel locks the root directory to the auto-detected
+   app. Solved with the `api-deploy` split branch (see step 4); the Web app still
+   deploys from `main` because hPanel auto-detects the Next.js app in `client/`.
 3. After adding the Web app: login works and the dashboard shows "Live"
    (long-polling through the proxy).
 
@@ -79,8 +81,13 @@ lower and cannot be raised, lower the upload cap (`MAX_IMAGE_BYTES` in
 
 Create the Node.js website on `api-lucaci.chomnenh.com`:
 
-- **Source:** GitHub repo `OudomPanhaChea/lucaci.chomnenh.com`, branch `main`,
-  app root `server/` (see step 0 if subdirectory roots are not supported).
+- **Source:** GitHub repo `OudomPanhaChea/lucaci.chomnenh.com`, branch
+  **`api-deploy`**, root directory = repo root. hPanel locks the root directory
+  to what it auto-detects and cannot target the `server/` subfolder, so
+  `api-deploy` is the `server/` folder split out to a repo root
+  (`git subtree split --prefix=server`). The GitHub Action
+  `.github/workflows/sync-api-deploy.yml` regenerates and force-pushes it on
+  every push to `main` that touches `server/**`; never commit to it directly.
 - **Node version:** 22 (the start script uses `--env-file-if-exists`, which needs
   Node 22.9+).
 - **Build command:** `npm ci` (or `npm install`).

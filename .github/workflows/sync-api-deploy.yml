@@ -1,0 +1,27 @@
+name: Sync api-deploy branch
+
+# Hostinger deploys the API app from the api-deploy branch, which is the
+# server/ folder split out to a repo root (hPanel cannot use a subdirectory
+# as the app root). Regenerate it whenever server code changes on main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Split server/ into api-deploy and push
+        run: |
+          git subtree split --prefix=server -b api-deploy
+          git push -f origin api-deploy
