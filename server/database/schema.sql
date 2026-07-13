@@ -1,13 +1,15 @@
--- Chamnenh POS — shared multi-business database schema
--- Database: chamnenh_pos  (MariaDB / MySQL, utf8mb4)
+-- Chomnenh POS — shared multi-business database schema
+-- (MariaDB / MySQL, utf8mb4)
 --
 -- Tenancy model: many businesses share this database; every table carries a
 -- business_id. Each backend deployment serves exactly one business, selected
 -- by the BUSINESS_ID env var (default 1), and scopes every query with it.
 
-CREATE DATABASE IF NOT EXISTS `chamnenh_pos`
-  DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `chamnenh_pos`;
+-- This file targets whatever database is currently selected, so it works on
+-- shared hosting (phpMyAdmin: select the database, then Import). For local
+-- dev, create and select the database first:
+--   mysql -u root -e "CREATE DATABASE IF NOT EXISTS chomnenh DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci"
+--   mysql -u root chomnenh < database/schema.sql
 
 -- ── Businesses (tenants) ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `businesses` (
