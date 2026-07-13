@@ -350,6 +350,22 @@ npm run build
   `components/ui/chart.tsx` has the shadcn-look `ChartTooltipContent` /
   `ChartLegendContent` + `ChartConfig` for Recharts on our surface tokens.
 
+### Done (2026-07-13): deployed to production (Hostinger)
+- Live: web `lucaci.chomnenh.com` (GitHub deploy, branch `main`, root `client`),
+  API `api-lucaci.chomnenh.com` (branch `api-deploy`; hPanel rejects two-level
+  subdomains AND permanently caches root dir "client" for this repo, so the
+  generated branch nests the server app under `client/`;
+  `.github/workflows/sync-api-deploy.yml` regenerates it on server/** pushes to
+  main — verified). DB `u189356587_chomnenh`, `DB_HOST=127.0.0.1` (localhost →
+  ::1 gets access denied), `max_allowed_packet` 1GB. Owner seeded via SSH
+  (port 65002; Node at `/opt/alt/alt-nodejs22/root/usr/bin`; panel env vars not
+  visible in SSH — temp `.env` used then deleted). Owner `lucaci@chomnenh.com`,
+  business "Lucaci". Full prod env in `server/.env.production` (gitignored).
+- Gotchas fixed during deploy: client app must NOT set `NODE_ENV=production`
+  (npm skips devDependencies → build broke; build-time deps also moved to
+  `dependencies`); schema.sql no longer has CREATE DATABASE/USE (phpMyAdmin
+  shared-hosting import); DEPLOYMENT-HOSTINGER.md updated throughout.
+
 ### Pending / decisions to revisit
 - Khmer i18n intentionally skipped in v1.
 - Internal identifiers (package name `chamnenh-client`, DB `chamnenh_pos`, cookie
