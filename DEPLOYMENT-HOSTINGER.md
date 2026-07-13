@@ -22,10 +22,12 @@ rejects domains with more than one subdomain level.)
 
 Two consequences to accept, not fix:
 
-- **Socket.IO runs on HTTP long-polling.** A WebSocket upgrade cannot pass through
-  a Next.js rewrite. Socket.IO detects this and stays on polling automatically.
-  Realtime still works (dashboard, POS, invoices update live). Do NOT remove
-  Socket.IO or force `transports: ["websocket"]`.
+- **Socket.IO connects directly to the API host.** With `NEXT_PUBLIC_API_ORIGIN`
+  set (step 5) the browser talks to `api-lucaci` itself, so polling works and a
+  WebSocket upgrade is possible. Without it, the same-origin `/socket.io` proxy
+  path is used; that needs `skipTrailingSlashRedirect` in `next.config.ts`
+  (Next's 308 trailing-slash redirect used to break the handshake) and stays on
+  long-polling. Either way, do NOT force `transports: ["websocket"]`.
 - **Uploaded images live in the database, not the app disk.** Managed redeploys
   replace the app folder, wiping anything under `server/uploads/`, so every
   image upload (products, avatars, logo, banners) is stored as a row in the
@@ -132,8 +134,14 @@ Create the Node.js website on `lucaci.chomnenh.com`:
 
 ```env
 API_ORIGIN=https://api-lucaci.chomnenh.com
+NEXT_PUBLIC_API_ORIGIN=https://api-lucaci.chomnenh.com
 NEXT_PUBLIC_SITE_URL=https://lucaci.chomnenh.com
 ```
+
+`NEXT_PUBLIC_API_ORIGIN` makes the browser open its Socket.IO connection
+straight to the API host instead of through the Next proxy (which broke the
+realtime "Live" pill in production: Next 308-redirects `/socket.io/` before
+the rewrite runs). The API's CORS (`CLIENT_ORIGIN`) already allows it.
 
 Do NOT set `NODE_ENV=production` on the client app: npm then installs without
 devDependencies and `next build` breaks. `next build`/`next start` set
@@ -155,7 +163,9 @@ remote DB, if remote MySQL access is enabled in hPanel.)
 
 - [ ] Login at `https://lucaci.chomnenh.com/login`, then change the owner password
       (Profile page)
-- [ ] Header shows **Live** (Socket.IO long-polling through the proxy)
+- [ ] Header shows **Live** (Socket.IO connecting directly to the API host
+      via `NEXT_PUBLIC_API_ORIGIN`; falls back to the same-origin proxy path,
+      which works since `skipTrailingSlashRedirect` in `next.config.ts`)
 - [ ] Upload a product photo; its URL should be `/uploads/img/<n>` and it
       should survive a redeploy (it lives in the DB)
 - [ ] Camera barcode scanning works (needs the HTTPS cert from step 1)

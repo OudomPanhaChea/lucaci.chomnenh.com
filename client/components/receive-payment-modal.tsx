@@ -77,7 +77,7 @@ export default function ReceivePaymentModal({
               <p className="tabular font-medium text-emerald-600 dark:text-emerald-400">{money(sale.amount_paid)}</p>
             </div>
             <div>
-              <p className="text-fg-subtle">Balance</p>
+              <p className="text-fg-subtle">Owing</p>
               <p className="tabular font-semibold text-rose-600 dark:text-rose-400">{money(balance)}</p>
             </div>
           </div>
@@ -110,6 +110,7 @@ export default function ReceivePaymentModal({
           )}
 
           <Input
+            className="mt-4!"
             placeholder="Note (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}

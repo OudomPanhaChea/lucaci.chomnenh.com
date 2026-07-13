@@ -154,6 +154,16 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--fg-subtle);
 }
+/* Fully hidden scrollbar for swipeable rows (menu category chips). Lives
+   here unlayered because Tailwind's layered [scrollbar-width:none] utility
+   loses the cascade to the unlayered * rules above. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
 
 /* ── Date pickers on small screens ────────────────────────────────────────
    AntD's RangePicker opens two month panels side by side, which overflows

@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import dayjs, { Dayjs } from "dayjs";
 import { toast } from "react-toastify";
 import {
-  Plus, Pencil, Trash2, UserRound, Wallet, HandCoins, Handshake,
-  ChevronRight, ReceiptText, Phone, Mail, IdCard, MapPin, StickyNote,
+  Plus, Pencil, Trash2, UserRound, Wallet, HandCoins, Handshake, Trophy,
+  ChevronRight, ReceiptText, Phone, Mail, IdCard, MapPin, StickyNote, Package,
 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
@@ -72,17 +72,32 @@ export default function ClientsPage() {
     loadStatement();
   });
 
+  // Best client first: rank by money actually received, then items bought.
+  // The rank is global (computed over all clients), so it stays stable when
+  // the list is searched or filtered.
+  const rankOf = useMemo(() => {
+    const sorted = [...clients].sort(
+      (a, b) =>
+        Number(b.total_spent ?? 0) - Number(a.total_spent ?? 0) ||
+        Number(b.total_items ?? 0) - Number(a.total_items ?? 0) ||
+        Number(b.purchase_count ?? 0) - Number(a.purchase_count ?? 0)
+    );
+    return new Map(sorted.map((c, i) => [c.id, i + 1]));
+  }, [clients]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return clients.filter(
-      (c) =>
-        (typeFilter === "all" ||
-          (typeFilter === "owing" ? Number(c.outstanding) > 0 : c.client_type === typeFilter)) &&
-        (!q ||
-          c.name.toLowerCase().includes(q) || c.phone?.includes(q) ||
-          c.email?.toLowerCase().includes(q) || c.id_card?.toLowerCase().includes(q))
-    );
-  }, [clients, search, typeFilter]);
+    return clients
+      .filter(
+        (c) =>
+          (typeFilter === "all" ||
+            (typeFilter === "owing" ? Number(c.outstanding) > 0 : c.client_type === typeFilter)) &&
+          (!q ||
+            c.name.toLowerCase().includes(q) || c.phone?.includes(q) ||
+            c.email?.toLowerCase().includes(q) || c.id_card?.toLowerCase().includes(q))
+      )
+      .sort((a, b) => (rankOf.get(a.id) ?? 0) - (rankOf.get(b.id) ?? 0));
+  }, [clients, search, typeFilter, rankOf]);
   const partnerCount = useMemo(
     () => clients.filter((c) => c.client_type === "partner").length,
     [clients]
@@ -168,15 +183,24 @@ export default function ClientsPage() {
           scroll={{ x: 1000 }}
           onRow={(c) => ({ onClick: () => openView(c), className: "cursor-pointer" })}
           columns={[
-            { title: "#", dataIndex: "display_number", width: 60,
-              render: (n) => <span className="tabular text-fg-subtle">{n}</span> },
+            { title: "Rank", key: "rank", width: 68, align: "center",
+              render: (_, c) => {
+                const rank = rankOf.get(c.id) ?? 0;
+                return rank <= 3 && Number(c.total_spent) > 0 ? (
+                  <span className="tabular inline-flex items-center gap-1 font-semibold text-brand-600 dark:text-brand-400">
+                    <Trophy className="h-3.5 w-3.5" />{rank}
+                  </span>
+                ) : (
+                  <span className="tabular text-fg-subtle">{rank}</span>
+                );
+              } },
             {
               title: "Client", dataIndex: "name",
               render: (_, c) => (
                 <div className="flex items-center gap-3">
                   <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
                     c.client_type === "partner"
-                      ? "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300"
+                      ? "bg-brand text-brand-soft dark:bg-brand-500 dark:text-brand-700"
                       : "bg-brand-soft text-brand-soft-foreground"
                   }`}>
                     {c.client_type === "partner"
@@ -187,7 +211,7 @@ export default function ClientsPage() {
                     <p className="font-medium text-fg">
                       {c.name}
                       {c.client_type === "partner" && (
-                        <Tag color="orange" className="!ml-2 !mr-0">Partner</Tag>
+                        <Tag color="blue" className="!ml-2 !mr-0">Partner</Tag>
                       )}
                     </p>
                     <p className="text-xs text-fg-subtle">{c.phone || c.email || ""}</p>
@@ -197,6 +221,9 @@ export default function ClientsPage() {
             },
             { title: "Purchases", dataIndex: "purchase_count", width: 100, align: "center",
               render: (v) => <span className="tabular">{v}</span> },
+            { title: "Items", dataIndex: "total_items", width: 85, align: "center",
+              sorter: (a, b) => Number(a.total_items ?? 0) - Number(b.total_items ?? 0),
+              render: (v) => <span className="tabular">{Number(v ?? 0)}</span> },
             { title: "Total spent", dataIndex: "total_spent", width: 115, align: "right",
               sorter: (a, b) => Number(a.total_spent) - Number(b.total_spent),
               render: (v) => <span className="tabular font-medium">{money(v)}</span> },
@@ -283,7 +310,7 @@ export default function ClientsPage() {
             <span className="flex items-center gap-3">
               <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
                 cl.client_type === "partner"
-                  ? "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300"
+                  ? "bg-brand text-brand-soft dark:bg-brand-500 dark:text-brand-700"
                   : "bg-brand-soft text-brand-soft-foreground"
               }`}>
                 {cl.client_type === "partner"
@@ -293,10 +320,10 @@ export default function ClientsPage() {
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
                   <span className="truncate">{cl.name}</span>
-                  {cl.client_type === "partner" && <Tag color="orange" className="!m-0">Partner</Tag>}
+                  {cl.client_type === "partner" && <Tag color="blue" className="!m-0">Partner</Tag>}
                 </span>
                 <span className="block text-xs font-normal text-fg-subtle">
-                  Client #{cl.display_number}{cl.phone ? `, ${cl.phone}` : ""}
+                  {cl.phone ? `${cl.phone}` : ""}
                 </span>
               </span>
             </span>
@@ -376,10 +403,14 @@ export default function ClientsPage() {
             </div>
 
             {statement && (
-              <div className="grid grid-cols-2 gap-3 rounded-lg bg-surface-sunken p-3 text-center text-sm sm:grid-cols-4">
+              <div className="grid grid-cols-3 gap-3 rounded-lg bg-surface-sunken p-3 text-center text-sm sm:grid-cols-5">
                 <div>
-                  <p className="text-xs text-fg-subtle">Purchases</p>
+                  <p className="text-xs text-fg-subtle">Invoices</p>
                   <p className="tabular font-semibold text-fg">{statement.period.invoice_count}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-fg-subtle">Total Items</p>
+                  <p className="tabular font-semibold text-fg">{statement.period.total_items}</p>
                 </div>
                 <div>
                   <p className="text-xs text-fg-subtle">Purchased</p>
@@ -464,6 +495,49 @@ export default function ClientsPage() {
                   ),
                 },
                 {
+                  key: "products",
+                  label: "Products",
+                  children: stmtLoading ? (
+                    <div className="flex justify-center py-10"><Spinner /></div>
+                  ) : (statement?.products?.length ?? 0) === 0 ? (
+                    <EmptyState
+                      icon={Package}
+                      title="No products yet"
+                      description={stmtRange
+                        ? "Nothing was bought in the selected period. Try a wider date range."
+                        : "Products this client buys will be ranked here after their first sale."}
+                    />
+                  ) : (
+                    <div>
+                      <ul className="space-y-0.5">
+                        {statement?.products.map((pr, i) => {
+                          const max = Number(statement.products[0]?.total) || 1;
+                          return (
+                            <li key={`${pr.product_id ?? "x"}-${pr.name}`} className="rounded-lg px-2.5 py-2 text-sm">
+                              <div className="flex items-center gap-3">
+                                <span className="tabular w-6 shrink-0 text-right text-fg-subtle">{i + 1}.</span>
+                                <span className="min-w-0 flex-1 truncate font-medium text-fg">{pr.name}</span>
+                                <span className="tabular shrink-0 text-xs text-fg-subtle">
+                                  {Number(pr.quantity)} pcs
+                                </span>
+                                {/* <span className="tabular w-20 shrink-0 text-right font-medium text-fg">
+                                  {money(pr.total)}
+                                </span> */}
+                              </div>
+                              <div className="ml-9 mt-1.5 h-1 overflow-hidden rounded-full bg-surface-sunken">
+                                <div
+                                  className="h-full rounded-full bg-brand/60"
+                                  style={{ width: `${Math.max((Number(pr.total) / max) * 100, 2)}%` }}
+                                />
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ),
+                },
+                {
                   key: "payments",
                   label: "Payments and deposits",
                   children: stmtLoading ? (
@@ -489,6 +563,14 @@ export default function ClientsPage() {
                           <div className="min-w-0">
                             <p className="flex items-center gap-2">
                               <StatusBadge status={p.type === "sale" ? p.method : p.type} />
+                              {Boolean(p.is_paydown) && (
+                                <span
+                                  title="Received after the sale: this payment pays down what was owing"
+                                  className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-fg-muted"
+                                >
+                                  Paydown
+                                </span>
+                              )}
                               {p.invoice_number && <span className="font-mono text-xs text-fg-subtle">{p.invoice_number}</span>}
                             </p>
                             <p className="mt-0.5 text-xs text-fg-subtle">

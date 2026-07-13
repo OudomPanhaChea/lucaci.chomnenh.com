@@ -133,7 +133,8 @@ export default function ReportsPage() {
               </defs>
               <CartesianGrid vertical={false} stroke="var(--line)" />
               <XAxis dataKey="period" tickLine={false} axisLine={false}
-                tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} tickMargin={8} />
+                tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} tickMargin={8}
+                tickFormatter={(v: string) => (data?.group === "day" ? v.slice(5) : v)} />
               <YAxis tickLine={false} axisLine={false} width={54} tickMargin={4}
                 tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
                 tickFormatter={(v: number) => `$${v}`} />

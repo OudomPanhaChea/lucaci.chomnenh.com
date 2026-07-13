@@ -64,7 +64,8 @@ export interface Client {
   note: string | null;
   credit_balance: number;
   purchase_count?: number;
-  total_spent?: number;
+  total_spent?: number; // money actually received (excludes owing)
+  total_items?: number; // pieces bought across non-voided sales
   outstanding?: number;
   last_purchase_at?: string | null;
   created_at?: string;
@@ -84,6 +85,7 @@ export interface Payment {
   received_by: string | null;
   note: string | null;
   created_at: string;
+  is_paydown?: 0 | 1; // sale payment received after the sale = paying owing
 }
 
 export interface SaleItem {
@@ -132,7 +134,9 @@ export interface ClientStatement {
   client: Client;
   sales: Sale[];
   payments: Payment[];
-  period: { invoice_count: number; purchased: number; paid: number; outstanding: number };
+  // Per-product breakdown of everything bought in the period, by total desc
+  products: { product_id: number | null; name: string; quantity: number; total: number }[];
+  period: { invoice_count: number; total_items: number; purchased: number; paid: number; outstanding: number };
   overall: { outstanding: number; credit_balance: number };
 }
 

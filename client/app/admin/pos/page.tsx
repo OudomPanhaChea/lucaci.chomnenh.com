@@ -447,8 +447,8 @@ export default function PosPage() {
                       <p className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
                         {l.product.name}
                         {l.is_bonus && (
-                          <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                            Free
+                          <span className="ml-1.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-soft dark:bg-brand-500 dark:text-brand-700">
+                            Bonus
                           </span>
                         )}
                       </p>
@@ -457,7 +457,7 @@ export default function PosPage() {
                         onClick={() => toggleBonus(key)}
                         className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors duration-200 ${
                           l.is_bonus
-                            ? "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300"
+                            ? "bg-brand text-brand-soft dark:bg-brand-500 dark:text-brand-700"
                             : "text-fg-subtle hover:bg-surface-sunken hover:text-fg"
                         }`}>
                         <Gift className="h-3.5 w-3.5" />
@@ -550,11 +550,11 @@ export default function PosPage() {
                 return (
                   <span className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate">{opt.label}</span>
-                    {c.client_type === "partner" && (
+                    {/* {c.client_type === "partner" && (
                       <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                         Partner
                       </span>
-                    )}
+                    )} */}
                     {Number(c.outstanding) > 0 && (
                       <span className="tabular shrink-0 text-xs text-rose-500 dark:text-rose-400">
                         owes {money(c.outstanding)}

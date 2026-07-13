@@ -366,6 +366,32 @@ npm run build
   `dependencies`); schema.sql no longer has CREATE DATABASE/USE (phpMyAdmin
   shared-hosting import); DEPLOYMENT-HOSTINGER.md updated throughout.
 
+### Done (2026-07-13, batch 2): post-launch fixes + clients analytics
+- **Prod "Offline" pill fixed**: Next 308-redirects `/socket.io/` (trailing slash)
+  before rewrites run in production, killing the polling handshake. Two-part fix:
+  `skipTrailingSlashRedirect: true` in next.config.ts, and `services/socket.ts`
+  connects straight to `NEXT_PUBLIC_API_ORIGIN` when set (add it to the hPanel
+  Web app env = https://api-lucaci.chomnenh.com, then rebuild; API CORS already
+  allows it, verified live with curl). Guide updated.
+- Light theme is the default (`defaultTheme="light"`, system still selectable).
+- Public menu: banner carousel rebuilt on transforms (pointer-swipe, wrap-around
+  loop, arrows on sm+, dots, auto-advance pauses while held) — the old scroll-snap
+  track showed a scrollbar because the unlayered `* { scrollbar-width: thin }` in
+  globals.css beats Tailwind's layered utilities (new unlayered `.no-scrollbar`
+  class is the escape hatch). Products now grouped under category section
+  headings when browsing All (chips/search switch to a flat grid), footer
+  rebuilt (logo, tel: link, address, preview note, copyright).
+- Charts: server zero-fills series so they always span the full window ending
+  today (`fillSeries` in reports.controller; dashboard reads DB CURDATE() to stay
+  on +07:00). Dashboard chart window selectable 7/14/30 days (`?days=`).
+- Clients: `total_spent` = SUM(amount_paid) (money received, excludes owing);
+  `total_items` (pieces) on the list + statement `period.total_items`; table
+  ranks best clients (global rank by spent→items→purchases, top 3 get a trophy,
+  default sort by rank, replacing the # column); statement gained a Products tab
+  (per-product qty/total ranked by total, neutral single-color bars) and
+  payments rows flag `is_paydown` (sale payment >10s after the sale = paying
+  owing) shown as a neutral "Paydown" pill. All smoke-tested via curl locally.
+
 ### Pending / decisions to revisit
 - Khmer i18n intentionally skipped in v1.
 - Internal identifiers (package name `chamnenh-client`, DB `chamnenh_pos`, cookie

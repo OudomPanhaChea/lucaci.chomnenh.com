@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { Segmented } from "antd";
 import {
   DollarSign, ReceiptText, Package, TrendingUp, AlertTriangle, ArrowRight, HandCoins,
 } from "lucide-react";
@@ -33,10 +34,12 @@ interface DashboardData {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [chartDays, setChartDays] = useState<7 | 14 | 30>(14);
 
   const load = useCallback(() => {
-    api.get("/reports/dashboard").then(({ data }) => setData(data)).catch(() => {});
-  }, []);
+    api.get("/reports/dashboard", { params: { days: chartDays } })
+      .then(({ data }) => setData(data)).catch(() => {});
+  }, [chartDays]);
 
   useEffect(load, [load]);
   useRealtime(["sale:created", "sale:updated", "sale:voided", "product:changed"], load);
@@ -85,7 +88,19 @@ export default function DashboardPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="rounded-xl border border-line bg-surface-raised p-4 shadow-card xl:col-span-2">
-          <h2 className="mb-3 font-medium text-fg">Revenue, last 14 days</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="font-medium text-fg">Revenue, up to today</h2>
+            <Segmented
+              size="small"
+              value={chartDays}
+              onChange={(v) => setChartDays(v as typeof chartDays)}
+              options={[
+                { label: "7 days", value: 7 },
+                { label: "14 days", value: 14 },
+                { label: "30 days", value: 30 },
+              ]}
+            />
+          </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data?.week_series ?? []} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
