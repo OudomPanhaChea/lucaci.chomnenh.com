@@ -128,10 +128,14 @@ Create the Node.js website on `lucaci.chomnenh.com`:
 - **Environment variables:**
 
 ```env
-NODE_ENV=production
 API_ORIGIN=https://api-lucaci.chomnenh.com
 NEXT_PUBLIC_SITE_URL=https://lucaci.chomnenh.com
 ```
+
+Do NOT set `NODE_ENV=production` on the client app: npm then installs without
+devDependencies and `next build` breaks. `next build`/`next start` set
+`NODE_ENV` themselves. (Build-time packages were also moved into `dependencies`
+on 2026-07-13, so the build survives either way.)
 
 `API_ORIGIN` is read at build time by `next.config.ts`, so it must be set
 **before** the build runs, and the app must be rebuilt if it ever changes.
