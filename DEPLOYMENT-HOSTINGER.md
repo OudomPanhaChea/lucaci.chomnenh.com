@@ -82,12 +82,15 @@ lower and cannot be raised, lower the upload cap (`MAX_IMAGE_BYTES` in
 Create the Node.js website on `api-lucaci.chomnenh.com`:
 
 - **Source:** GitHub repo `OudomPanhaChea/lucaci.chomnenh.com`, branch
-  **`api-deploy`**, root directory = repo root. hPanel locks the root directory
-  to what it auto-detects and cannot target the `server/` subfolder, so
-  `api-deploy` is the `server/` folder split out to a repo root
-  (`git subtree split --prefix=server`). The GitHub Action
-  `.github/workflows/sync-api-deploy.yml` regenerates and force-pushes it on
-  every push to `main` that touches `server/**`; never commit to it directly.
+  **`api-deploy`**, framework preset Express, entry file `index.js`. hPanel
+  cannot target the `server/` subfolder and permanently caches root directory
+  `client` for this repo (from its first scan), so `api-deploy` is generated
+  with the **server app nested under a `client/` folder** — the cached root
+  then points at the Express app. Yes, the folder named `client` on that
+  branch contains the API; it exists only to satisfy hPanel. The GitHub Action
+  `.github/workflows/sync-api-deploy.yml` regenerates and force-pushes the
+  branch on every push to `main` that touches `server/**`; never commit to it
+  directly.
 - **Node version:** 22 (the start script uses `--env-file-if-exists`, which needs
   Node 22.9+).
 - **Build command:** `npm ci` (or `npm install`).
