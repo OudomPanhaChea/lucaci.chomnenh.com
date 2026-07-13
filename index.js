@@ -7,7 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import routes from "./routes/index.js";
 import { initSocket } from "./config/socket.js";
-import { UPLOADS_DIR } from "./middleware/upload.js";
+import { UPLOADS_DIR, serveStoredImage } from "./middleware/upload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -21,7 +21,9 @@ app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
-// Product images (see middleware/upload.js). Cache hard: filenames are UUIDs.
+// Images are stored in the DB (see middleware/upload.js); the static fallback
+// serves files uploaded before that change. Cache hard: ids/filenames never repeat.
+app.get("/uploads/img/:id", serveStoredImage);
 app.use(
   "/uploads",
   express.static(UPLOADS_DIR, { maxAge: "30d", immutable: true })

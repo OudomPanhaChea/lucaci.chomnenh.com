@@ -11,6 +11,10 @@ const saleStatus = (paid, total) => (paid >= total ? "paid" : paid > 0 ? "partia
 // displayed totals are never trusted. A sale may be paid in full, partially,
 // or not at all (on account); anything less than full requires a client, and
 // `use_credit` spends the client's prepaid balance first.
+// Cart items may carry `unit_id` (a product_units row: sell N pieces as one
+// "Box of 12" line), `price` (negotiated override for the line's unit price),
+// and `is_bonus` (FREE goods given with a bulk deal — price forced to 0,
+// stock and cost still tracked).
 export async function createSale(req, res) {
   const { items, client_id, discount_pct = 0, payment_method = "cash",
           amount_received = null, note = null,
@@ -22,6 +26,10 @@ export async function createSale(req, res) {
   for (const it of items) {
     if (!Number.isInteger(it?.quantity) || it.quantity < 1 || !it.product_id) {
       return res.status(400).json({ message: "Invalid cart item" });
+    }
+    if (it.price !== undefined && it.price !== null &&
+        (Number.isNaN(Number(it.price)) || Number(it.price) < 0)) {
+      return res.status(400).json({ message: "Invalid line price" });
     }
   }
   if (amount_paid !== null && (Number.isNaN(Number(amount_paid)) || Number(amount_paid) < 0)) {
@@ -45,26 +53,62 @@ export async function createSale(req, res) {
     );
     const byId = new Map(products.map((p) => [p.id, p]));
 
+    // Bulk units of the products in the cart; a line's unit must belong to
+    // its own product. Stock is always counted in base pieces (qty × factor).
+    const [unitDefs] = await conn.query(
+      "SELECT * FROM product_units WHERE business_id = ? AND product_id IN (?)",
+      [BUSINESS_ID, ids]
+    );
+    const unitById = new Map(unitDefs.map((u) => [u.id, u]));
+
     let subtotal = 0;
     let totalCost = 0;
     const lineRows = [];
+    const stockOut = []; // [{ product_id, pieces }] per line, tracked products only
+    // Running stock left per product: the same product can appear on several
+    // lines (piece + box + bonus), so checks must accumulate. NULL = untracked.
+    const remaining = new Map(products.map((p) => [p.id, p.stock_qty]));
     for (const it of items) {
       const p = byId.get(it.product_id);
       if (!p) {
         await conn.rollback();
         return res.status(400).json({ message: `Product #${it.product_id} is not available` });
       }
-      if (p.stock_qty < it.quantity) {
-        await conn.rollback();
-        return res.status(409).json({
-          message: `Not enough stock for "${p.name}" (${p.stock_qty} left)`,
-        });
+      let unit = null;
+      if (it.unit_id) {
+        unit = unitById.get(Number(it.unit_id));
+        if (!unit || unit.product_id !== p.id) {
+          await conn.rollback();
+          return res.status(400).json({ message: `Invalid unit for "${p.name}"` });
+        }
       }
-      const unitPrice = round2(p.sell_price * (1 - p.discount_pct / 100));
-      const lineTotal = round2(unitPrice * it.quantity);
+      const factor = unit ? unit.factor : 1;
+      const pieces = it.quantity * factor;
+      if (remaining.get(p.id) !== null) {
+        if (remaining.get(p.id) < pieces) {
+          await conn.rollback();
+          return res.status(409).json({
+            message: `Not enough stock for "${p.name}" (${remaining.get(p.id)} pcs left, needs ${pieces})`,
+          });
+        }
+        remaining.set(p.id, remaining.get(p.id) - pieces);
+        stockOut.push({ product_id: p.id, pieces });
+      }
+      const isBonus = !!it.is_bonus;
+      const listPrice = unit
+        ? round2(unit.sell_price)
+        : round2(p.sell_price * (1 - p.discount_pct / 100));
+      const fullPrice = unit ? round2(unit.sell_price) : round2(p.sell_price);
+      const price = isBonus
+        ? 0
+        : it.price !== undefined && it.price !== null ? round2(it.price) : listPrice;
+      const lineTotal = round2(price * it.quantity);
       subtotal = round2(subtotal + lineTotal);
-      totalCost = round2(totalCost + p.cost_price * it.quantity);
-      lineRows.push([p.id, p.name, unitPrice, p.sell_price, p.cost_price, p.discount_pct, it.quantity, lineTotal]);
+      totalCost = round2(totalCost + p.cost_price * pieces);
+      lineRows.push([
+        p.id, p.name, unit ? unit.name : null, factor, price, fullPrice,
+        p.cost_price, unit ? 0 : p.discount_pct, it.quantity, lineTotal, isBonus ? 1 : 0,
+      ]);
     }
 
     const discountAmount = round2(subtotal * (saleDiscountPct / 100));
@@ -137,15 +181,15 @@ export async function createSale(req, res) {
 
     await conn.query(
       `INSERT INTO sale_items
-         (business_id, sale_id, product_id, name_snapshot, price, full_price, cost_price, discount_pct, quantity, line_total)
+         (business_id, sale_id, product_id, name_snapshot, unit_name, unit_factor, price, full_price, cost_price, discount_pct, quantity, line_total, is_bonus)
        VALUES ?`,
       [lineRows.map((r) => [BUSINESS_ID, saleId, ...r])]
     );
-    for (const it of items) {
-      await conn.query("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", [it.quantity, it.product_id]);
+    for (const out of stockOut) {
+      await conn.query("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", [out.pieces, out.product_id]);
       await conn.query(
         "INSERT INTO stock_movements (business_id, product_id, change_qty, reason, sale_id, user_id) VALUES (?, ?, ?, 'sale', ?, ?)",
-        [BUSINESS_ID, it.product_id, -it.quantity, saleId, req.user.id]
+        [BUSINESS_ID, out.product_id, -out.pieces, saleId, req.user.id]
       );
     }
 
@@ -204,7 +248,7 @@ export async function listSales(req, res) {
     `SELECT COUNT(*) AS total FROM sales s WHERE ${where.join(" AND ")}`, params
   );
   const [rows] = await pool.query(
-    `SELECT s.*, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
+    `SELECT s.*, (SELECT SUM(quantity * unit_factor) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
      FROM sales s WHERE ${where.join(" AND ")}
      ORDER BY s.id DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset]
@@ -234,14 +278,20 @@ export async function voidSale(req, res) {
       await conn.rollback();
       return res.status(400).json({ message: "Invoice is already voided or does not exist" });
     }
-    const [items] = await conn.query(
-      "SELECT product_id, quantity FROM sale_items WHERE sale_id = ? AND product_id IS NOT NULL", [id]
+    // Restore exactly what the sale's movements took out (already in pieces;
+    // untracked products wrote no movement, so nothing comes back for them).
+    const [taken] = await conn.query(
+      "SELECT product_id, SUM(-change_qty) AS pieces FROM stock_movements WHERE sale_id = ? AND reason = 'sale' GROUP BY product_id",
+      [id]
     );
-    for (const it of items) {
-      await conn.query("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", [it.quantity, it.product_id]);
+    for (const it of taken) {
+      await conn.query(
+        "UPDATE products SET stock_qty = stock_qty + ? WHERE id = ? AND stock_qty IS NOT NULL",
+        [it.pieces, it.product_id]
+      );
       await conn.query(
         "INSERT INTO stock_movements (business_id, product_id, change_qty, reason, sale_id, user_id) VALUES (?, ?, ?, 'void', ?, ?)",
-        [BUSINESS_ID, it.product_id, it.quantity, id, req.user.id]
+        [BUSINESS_ID, it.product_id, it.pieces, id, req.user.id]
       );
     }
 

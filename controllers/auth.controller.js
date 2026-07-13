@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import pool from "../config/db.js";
 import { BUSINESS_ID } from "../config/business.js";
 import { COOKIE_NAME } from "../middleware/auth.js";
-import { deleteUploadedFile } from "../middleware/upload.js";
+import { deleteUploadedFile, storeUploadedImage } from "../middleware/upload.js";
 
 const ME_FIELDS =
   "id, name, email, role, phone, avatar_url, created_at, last_login_at";
@@ -103,7 +103,7 @@ export async function updateProfile(req, res) {
 export async function updateAvatar(req, res) {
   if (!req.file) return res.status(400).json({ message: "No image uploaded" });
   const [rows] = await pool.query("SELECT avatar_url FROM users WHERE id = ?", [req.user.id]);
-  const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+  const avatarUrl = await storeUploadedImage(req.file);
   await pool.query("UPDATE users SET avatar_url = ? WHERE id = ?", [avatarUrl, req.user.id]);
   if (rows[0]?.avatar_url) deleteUploadedFile(rows[0].avatar_url);
 

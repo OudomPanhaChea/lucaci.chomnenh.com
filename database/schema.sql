@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS `products` (
   `cost_price`     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `sell_price`     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `discount_pct`   DECIMAL(5,2)  NOT NULL DEFAULT 0.00,
-  `stock_qty`      INT(11)       NOT NULL DEFAULT 0,
+  `stock_qty`      INT(11)       NULL DEFAULT 0,       -- NULL = stock not tracked
   `low_stock_alert` INT(11)      NOT NULL DEFAULT 5,
   `image_url`      VARCHAR(500)  DEFAULT NULL,
   `description`    TEXT          DEFAULT NULL,
@@ -78,6 +78,27 @@ CREATE TABLE IF NOT EXISTS `products` (
   CONSTRAINT `fk_products_business` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ── Product units (bulk/wholesale units per product) ───────────────────────
+-- Stock stays counted in base pieces; a unit is "Box of 12" with its own price
+-- (usually below 12x the piece price) and optional carton barcode. sale_items
+-- snapshot the unit name/factor, so deleting a unit never breaks history.
+CREATE TABLE IF NOT EXISTS `product_units` (
+  `id`          INT(11)       NOT NULL AUTO_INCREMENT,
+  `business_id` INT(11)       NOT NULL DEFAULT 1,
+  `product_id`  INT(11)       NOT NULL,
+  `name`        VARCHAR(60)   NOT NULL,             -- "Box of 12", "Case of 48"
+  `factor`      INT(11)       NOT NULL DEFAULT 1,   -- pieces per unit
+  `sell_price`  DECIMAL(10,2) NOT NULL DEFAULT 0.00,-- price for the whole unit
+  `barcode`     VARCHAR(64)   DEFAULT NULL,         -- carton barcode, scannable at POS
+  `created_at`  TIMESTAMP     NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_product_units_barcode` (`business_id`, `barcode`),
+  KEY `idx_product_units_product` (`product_id`),
+  CONSTRAINT `fk_product_units_product` FOREIGN KEY (`product_id`)
+    REFERENCES `products` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_product_units_business` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ── Clients (customers) ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `clients` (
   `id`             INT(11)      NOT NULL AUTO_INCREMENT,
@@ -87,6 +108,7 @@ CREATE TABLE IF NOT EXISTS `clients` (
   `phone`          VARCHAR(40)  DEFAULT NULL,
   `email`          VARCHAR(190) DEFAULT NULL,
   `sex`            ENUM('male','female','other') DEFAULT NULL,
+  `client_type`    ENUM('normal','partner') NOT NULL DEFAULT 'normal', -- partner = wholesale stock consumer
   `id_card`        VARCHAR(64)  DEFAULT NULL,
   `address`        VARCHAR(255) DEFAULT NULL,
   `note`           TEXT         DEFAULT NULL,
@@ -142,12 +164,15 @@ CREATE TABLE IF NOT EXISTS `sale_items` (
   `sale_id`       INT(11)       NOT NULL,
   `product_id`    INT(11)       DEFAULT NULL,
   `name_snapshot` VARCHAR(190)  NOT NULL,
+  `unit_name`     VARCHAR(60)   DEFAULT NULL,           -- snapshot of the unit sold, NULL = piece
+  `unit_factor`   INT(11)       NOT NULL DEFAULT 1,     -- pieces per unit at sale time
   `price`         DECIMAL(10,2) NOT NULL DEFAULT 0.00,  -- unit price after item discount
   `full_price`    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `cost_price`    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `discount_pct`  DECIMAL(5,2)  NOT NULL DEFAULT 0.00,
   `quantity`      INT(11)       NOT NULL DEFAULT 1,
   `line_total`    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `is_bonus`      TINYINT(1)    NOT NULL DEFAULT 0,     -- FREE line given with a bulk deal
   PRIMARY KEY (`id`),
   KEY `idx_sale_items_sale` (`sale_id`),
   KEY `idx_sale_items_product` (`product_id`),
@@ -199,6 +224,21 @@ CREATE TABLE IF NOT EXISTS `payments` (
   CONSTRAINT `payments_ibfk_2` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE SET NULL,
   CONSTRAINT `payments_ibfk_3` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_payments_business` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Uploaded images (stored in the DB, no persistent disk on managed hosts) ─
+-- Rows are what /uploads/img/:id serves; *_url columns point at that route.
+-- Ids are never reused, so responses are cacheable as immutable. Replacing an
+-- image inserts a new row and deletes the old one (middleware/upload.js).
+CREATE TABLE IF NOT EXISTS `images` (
+  `id`          INT(11)     NOT NULL AUTO_INCREMENT,
+  `business_id` INT(11)     NOT NULL DEFAULT 1,
+  `mime`        VARCHAR(50) NOT NULL,
+  `bytes`       MEDIUMBLOB  NOT NULL,   -- max 16MB, uploads capped at 5MB
+  `created_at`  TIMESTAMP   NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_images_business` (`business_id`),
+  CONSTRAINT `fk_images_business` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Settings (one row per business) ────────────────────────────────────────

@@ -10,8 +10,10 @@ const GROUP_FORMAT = {
   year: "%Y",
 };
 
+// Revenue is accrual (every non-voided sale counts when it happens); the
+// collected/outstanding split shows how much of it has actually been received.
 function rangeWhere(from, to) {
-  const where = ["s.business_id = ?", "s.status = 'paid'"];
+  const where = ["s.business_id = ?", "s.status <> 'voided'"];
   const params = [BUSINESS_ID];
   if (from) { where.push("s.created_at >= ?"); params.push(`${from} 00:00:00`); }
   if (to)   { where.push("s.created_at <= ?"); params.push(`${to} 23:59:59`); }
@@ -27,6 +29,8 @@ export async function summary(req, res) {
   const [[totals]] = await pool.query(
     `SELECT COUNT(*) AS invoice_count,
             COALESCE(SUM(s.total), 0)                  AS revenue,
+            COALESCE(SUM(s.amount_paid), 0)            AS collected,
+            COALESCE(SUM(s.total - s.amount_paid), 0)  AS outstanding,
             COALESCE(SUM(s.tax_amount), 0)             AS tax,
             COALESCE(SUM(s.discount_amount), 0)        AS discount,
             COALESCE(SUM(s.total - s.tax_amount - s.total_cost), 0) AS profit,
@@ -35,7 +39,7 @@ export async function summary(req, res) {
   );
 
   const [[{ items_sold }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold
+    `SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0) AS items_sold
      FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE ${where}`, params
   );
 
@@ -55,7 +59,7 @@ export async function summary(req, res) {
 
   const [top_products] = await pool.query(
     `SELECT si.name_snapshot AS name, si.product_id,
-            SUM(si.quantity) AS quantity, SUM(si.line_total) AS revenue
+            SUM(si.quantity * si.unit_factor) AS quantity, SUM(si.line_total) AS revenue
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
      WHERE ${where}
      GROUP BY si.product_id, si.name_snapshot
@@ -79,26 +83,31 @@ export async function dashboard(_req, res) {
     `SELECT COUNT(*) AS invoice_count, COALESCE(SUM(total), 0) AS revenue,
             COALESCE(AVG(total), 0) AS avg_sale,
             COALESCE(SUM(total - tax_amount - total_cost), 0) AS profit
-     FROM sales WHERE business_id = ? AND status = 'paid' AND DATE(created_at) = CURDATE()`,
+     FROM sales WHERE business_id = ? AND status <> 'voided' AND DATE(created_at) = CURDATE()`,
     [BUSINESS_ID]
   );
   const [[{ items_sold }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold
+    `SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0) AS items_sold
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
-     WHERE s.business_id = ? AND s.status = 'paid' AND DATE(s.created_at) = CURDATE()`,
+     WHERE s.business_id = ? AND s.status <> 'voided' AND DATE(s.created_at) = CURDATE()`,
     [BUSINESS_ID]
   );
   const [[yesterday]] = await pool.query(
     `SELECT COALESCE(SUM(total), 0) AS revenue FROM sales
-     WHERE business_id = ? AND status = 'paid' AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY`,
+     WHERE business_id = ? AND status <> 'voided' AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY`,
     [BUSINESS_ID]
   );
   const [week_series] = await pool.query(
     `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS period, COALESCE(SUM(total), 0) AS revenue,
             COUNT(*) AS invoice_count
      FROM sales
-     WHERE business_id = ? AND status = 'paid' AND created_at >= CURDATE() - INTERVAL 13 DAY
+     WHERE business_id = ? AND status <> 'voided' AND created_at >= CURDATE() - INTERVAL 13 DAY
      GROUP BY period ORDER BY period`,
+    [BUSINESS_ID]
+  );
+  const [[receivables]] = await pool.query(
+    `SELECT COALESCE(SUM(total - amount_paid), 0) AS total, COUNT(*) AS invoices
+     FROM sales WHERE business_id = ? AND status IN ('unpaid','partial')`,
     [BUSINESS_ID]
   );
   const [recent_sales] = await pool.query(
@@ -108,7 +117,8 @@ export async function dashboard(_req, res) {
   );
   const [low_stock] = await pool.query(
     `SELECT id, name, stock_qty, low_stock_alert, image_url FROM products
-     WHERE business_id = ? AND is_deleted = 0 AND is_active = 1 AND stock_qty <= low_stock_alert
+     WHERE business_id = ? AND is_deleted = 0 AND is_active = 1
+       AND stock_qty IS NOT NULL AND stock_qty <= low_stock_alert
      ORDER BY stock_qty ASC LIMIT 8`,
     [BUSINESS_ID]
   );
@@ -121,6 +131,7 @@ export async function dashboard(_req, res) {
   res.json({
     today: { ...today, items_sold },
     yesterday_revenue: yesterday.revenue,
+    receivables,
     week_series,
     recent_sales,
     low_stock,
