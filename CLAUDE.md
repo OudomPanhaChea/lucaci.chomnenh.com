@@ -259,7 +259,8 @@ npm run build
 
 ### Done (2026-07-10, batch 4): Hostinger deployment prep
 - Decision: deploy on the company's Hostinger Business shared plan (owner rejected VPS)
-  as two hPanel Node apps: `server/` on `api.lucaci.chomnenh.com`, `client/` on
+  as two hPanel Node apps: `server/` on `api-lucaci.chomnenh.com` (hPanel rejects
+  two-level subdomains like `api.lucaci`), `client/` on
   `lucaci.chomnenh.com` with `API_ORIGIN` env; Socket.IO degrades to long-polling
   through the Next rewrite (that's fine, don't force websocket). Full steps in
   **DEPLOYMENT-HOSTINGER.md**; DEPLOYMENT.md (VPS) demoted to fallback.

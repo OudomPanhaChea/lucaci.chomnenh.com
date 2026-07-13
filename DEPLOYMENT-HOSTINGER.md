@@ -10,14 +10,15 @@
 
 | hPanel "website" | Domain | App root | What it runs |
 |---|---|---|---|
-| 1. API | `api.lucaci.chomnenh.com` | `server/` | Express + Socket.IO on the port Hostinger assigns (`process.env.PORT`) |
+| 1. API | `api-lucaci.chomnenh.com` | `server/` | Express + Socket.IO on the port Hostinger assigns (`process.env.PORT`) |
 | 2. Web | `lucaci.chomnenh.com` | `client/` | Next.js (`next start`) |
 
 The browser only ever talks to `lucaci.chomnenh.com`. The Next app proxies
 `/api`, `/uploads`, and `/socket.io` to the API app via the rewrites in
 `client/next.config.ts` (driven by the `API_ORIGIN` env var), so cookies and auth
-work exactly like local dev. The `api.` subdomain is internal plumbing; nobody
-needs to browse it.
+work exactly like local dev. The `api-` subdomain is internal plumbing; nobody
+needs to browse it. (It is `api-lucaci`, not `api.lucaci`: hPanel's web-app flow
+rejects domains with more than one subdomain level.)
 
 Two consequences to accept, not fix:
 
@@ -39,7 +40,7 @@ Two consequences to accept, not fix:
 Deploy the API app alone first (steps 2 and 4) and confirm on the plan:
 
 1. The Node process stays alive and restarts after a crash (hit
-   `https://api.lucaci.chomnenh.com/api/health` over a day).
+   `https://api-lucaci.chomnenh.com/api/health` over a day).
 2. A repo **subdirectory** (`server/`) can be the app root. If hPanel only accepts
    a repo root, fall back to ZIP deploys of each folder, or split into two repos.
 3. After adding the Web app: login works and the dashboard shows "Live"
@@ -50,7 +51,7 @@ If any of these fail, stop and use DEPLOYMENT.md (VPS) instead.
 ## Step 1: DNS and subdomains
 
 In hPanel, under the `chomnenh.com` domain, create the two subdomains
-(`lucaci` and `api.lucaci`) and attach one Node.js website to each. Enable the
+(`lucaci` and `api-lucaci`) and attach one Node.js website to each. Enable the
 free SSL certificate on both (HTTPS is required: the camera barcode scanner
 only works on secure origins, and production cookies are `Secure`).
 
@@ -76,7 +77,7 @@ lower and cannot be raised, lower the upload cap (`MAX_IMAGE_BYTES` in
 
 ## Step 4: deploy the API app
 
-Create the Node.js website on `api.lucaci.chomnenh.com`:
+Create the Node.js website on `api-lucaci.chomnenh.com`:
 
 - **Source:** GitHub repo `OudomPanhaChea/lucaci.chomnenh.com`, branch `main`,
   app root `server/` (see step 0 if subdirectory roots are not supported).
@@ -107,7 +108,7 @@ env-var UI is awkward, the same values can live in a `server/.env` file created
 with the file manager instead (the start script loads it if present), but then
 they must survive redeploys, so prefer the UI.
 
-Check: `https://api.lucaci.chomnenh.com/api/health` returns `{"ok":true}`.
+Check: `https://api-lucaci.chomnenh.com/api/health` returns `{"ok":true}`.
 
 ## Step 5: deploy the Web app
 
@@ -121,7 +122,7 @@ Create the Node.js website on `lucaci.chomnenh.com`:
 
 ```env
 NODE_ENV=production
-API_ORIGIN=https://api.lucaci.chomnenh.com
+API_ORIGIN=https://api-lucaci.chomnenh.com
 NEXT_PUBLIC_SITE_URL=https://lucaci.chomnenh.com
 ```
 
