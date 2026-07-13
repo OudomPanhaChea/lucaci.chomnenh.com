@@ -10,12 +10,17 @@ export async function listClients(req, res) {
     where.push("(c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.id_card LIKE ?)");
     params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
+  // total_spent is money actually received (amount_paid), so it never
+  // includes what the client still owes; total_items counts base pieces.
   const [rows] = await pool.query(
     `SELECT c.*,
             COUNT(CASE WHEN s.status <> 'voided' THEN s.id END)      AS purchase_count,
-            COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.total END), 0) AS total_spent,
+            COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.amount_paid END), 0) AS total_spent,
             COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.total - s.amount_paid END), 0) AS outstanding,
-            MAX(s.created_at)                                        AS last_purchase_at
+            MAX(s.created_at)                                        AS last_purchase_at,
+            (SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0)
+               FROM sale_items si JOIN sales s2 ON s2.id = si.sale_id
+              WHERE s2.client_id = c.id AND s2.status <> 'voided')   AS total_items
      FROM clients c
      LEFT JOIN sales s ON s.client_id = c.id
      WHERE ${where.join(" AND ")}
@@ -88,12 +93,31 @@ export async function clientStatement(req, res) {
      ORDER BY id DESC LIMIT 200`,
     [id, BUSINESS_ID, ...rangeParams]
   );
+  // is_paydown marks money received on an invoice AFTER it was created (a
+  // payment against owing); at-sale payments land in the same transaction as
+  // the sale so their timestamps match within a few seconds.
   const [payments] = await pool.query(
     `SELECT p.id, p.sale_id, p.type, p.method, p.amount, p.received_by, p.note, p.created_at,
-            s.invoice_number
+            s.invoice_number,
+            (p.type = 'sale' AND p.amount > 0
+             AND p.created_at >= s.created_at + INTERVAL 10 SECOND) AS is_paydown
      FROM payments p LEFT JOIN sales s ON s.id = p.sale_id
      WHERE p.client_id = ? AND p.business_id = ?${rangeSql.replaceAll("created_at", "p.created_at")}
      ORDER BY p.id DESC LIMIT 200`,
+    [id, BUSINESS_ID, ...rangeParams]
+  );
+
+  const itemsRangeSql = rangeSql.replaceAll("created_at", "s.created_at");
+  // What this client buys: every product across the period's non-voided
+  // invoices, in base pieces, ranked by the amount spent on it.
+  const [products] = await pool.query(
+    `SELECT si.product_id, si.name_snapshot AS name,
+            SUM(si.quantity * si.unit_factor) AS quantity,
+            SUM(si.line_total)                AS total
+     FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     WHERE s.client_id = ? AND s.business_id = ? AND s.status <> 'voided'${itemsRangeSql}
+     GROUP BY si.product_id, si.name_snapshot
+     ORDER BY total DESC LIMIT 100`,
     [id, BUSINESS_ID, ...rangeParams]
   );
 
@@ -104,6 +128,12 @@ export async function clientStatement(req, res) {
      FROM sales WHERE client_id = ? AND business_id = ?${rangeSql}`,
     [id, BUSINESS_ID, ...rangeParams]
   );
+  const [[{ total_items }]] = await pool.query(
+    `SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0) AS total_items
+     FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     WHERE s.client_id = ? AND s.business_id = ? AND s.status <> 'voided'${itemsRangeSql}`,
+    [id, BUSINESS_ID, ...rangeParams]
+  );
   const [[overall]] = await pool.query(
     `SELECT COALESCE(SUM(CASE WHEN status <> 'voided' THEN total - amount_paid END), 0) AS outstanding
      FROM sales WHERE client_id = ? AND business_id = ?`,
@@ -111,8 +141,12 @@ export async function clientStatement(req, res) {
   );
 
   res.json({
-    client, sales, payments,
-    period: { ...period, outstanding: Number(period.purchased) - Number(period.paid) },
+    client, sales, payments, products,
+    period: {
+      ...period,
+      total_items: Number(total_items),
+      outstanding: Number(period.purchased) - Number(period.paid),
+    },
     overall: { outstanding: Number(overall.outstanding), credit_balance: Number(client.credit_balance) },
   });
 }
