@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Form, Input, Modal, Popconfirm, Select, Switch, Table } from "antd";
+import { Form, Input, Modal, Popconfirm, Select, Switch, Table } from "antd";
+import { Button } from "@/components/ui/button";
 import { toast } from "react-toastify";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import api, { apiError } from "@/services/api";
@@ -107,7 +108,7 @@ export default function StaffPage() {
         />
       </div>
 
-      <Modal open={formOpen} onCancel={() => setFormOpen(false)} onOk={submit} confirmLoading={saving}
+      <Modal open={formOpen} onCancel={() => setFormOpen(false)} onOk={submit} confirmLoading={saving} centered
         title={editing ? `Edit ${editing.name}` : "Add staff"} okText={editing ? "Save changes" : "Create account"}>
         <Form form={form} layout="vertical" requiredMark={false} className="pt-2">
           <Form.Item label="Name" name="name" rules={[{ required: true, message: "Name is required" }]}>

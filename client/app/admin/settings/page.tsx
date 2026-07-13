@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Button, Form, Input, InputNumber, Popconfirm, Switch, Upload } from "antd";
+import { Form, Input, InputNumber, Popconfirm, Switch, Upload } from "antd";
+import { Button } from "@/components/ui/button";
 import ImgCrop from "antd-img-crop";
 import { toast } from "react-toastify";
 import { ExternalLink, ImagePlus, Store, Trash2, X } from "lucide-react";

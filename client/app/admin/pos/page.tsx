@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Button, Input, InputNumber, Modal, Select, Segmented, Form,
+  Input, InputNumber, Modal, Select, Segmented, Form, Switch,
 } from "antd";
+import { Button } from "@/components/ui/button";
 import { toast } from "react-toastify";
 import {
   ScanBarcode, Search, Minus, Plus, Trash2, ShoppingCart, Printer,
-  PackageOpen, UserPlus,
+  PackageOpen, UserPlus, Gift, Handshake, UserRound, Banknote, QrCode,
+  CreditCard, Landmark,
 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { playScanBeep, playScanError } from "@/lib/sound";
@@ -15,8 +17,33 @@ import { useRealtime } from "@/hooks/useRealtime";
 import BarcodeScanner from "@/components/barcode-scanner";
 import Receipt from "@/components/receipt";
 import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { money, khr, unitPrice } from "@/lib/format";
-import type { Product, Category, Client, CartLine, Sale, Settings, PaymentMethod } from "@/lib/types";
+import type {
+  Product, ProductUnit, Category, Client, CartLine, Sale, Settings, PaymentMethod,
+} from "@/lib/types";
+
+// A cart line is product + unit (+ bonus flag): the same product can sit in the
+// cart as pieces, as a "Box of 12", and as a FREE bonus line at the same time.
+const lineKey = (l: CartLine) => `${l.product.id}:${l.unit?.id ?? 0}:${l.is_bonus ? 1 : 0}`;
+const lineFactor = (l: CartLine) => l.unit?.factor ?? 1;
+const lineListPrice = (l: CartLine) =>
+  l.unit ? Number(l.unit.sell_price) : unitPrice(l.product.sell_price, l.product.discount_pct);
+const linePrice = (l: CartLine) => (l.is_bonus ? 0 : l.price ?? lineListPrice(l));
+// Stock is counted in base pieces across every line of the product
+const piecesOf = (lines: CartLine[], productId: number, exceptKey?: string) =>
+  lines.reduce(
+    (n, l) =>
+      l.product.id === productId && lineKey(l) !== exceptKey ? n + l.quantity * lineFactor(l) : n,
+    0
+  );
+// Small pill buttons used for quick amounts in the payment modal
+const chipCls = (active: boolean) =>
+  `cursor-pointer rounded-md border px-2.5 py-1 text-xs transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+    active
+      ? "border-brand bg-brand-soft font-medium text-brand-soft-foreground"
+      : "border-line text-fg-muted hover:border-line-strong hover:text-fg"
+  }`;
 
 export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -33,6 +60,8 @@ export default function PosPage() {
   const [paying, setPaying] = useState(false);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [received, setReceived] = useState<number | null>(null);
+  const [payAmount, setPayAmount] = useState<number | null>(null); // null = pay in full
+  const [useCredit, setUseCredit] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [quickClientOpen, setQuickClientOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -64,34 +93,51 @@ export default function PosPage() {
     );
   }, [products, search, categoryId]);
 
-  const addToCart = useCallback((product: Product, silent = false) => {
-    setCart((prev) => {
-      const line = prev.find((l) => l.product.id === product.id);
-      const inCart = line?.quantity ?? 0;
-      if (inCart + 1 > product.stock_qty) {
-        playScanError();
-        toast.warn(`Only ${product.stock_qty} in stock for "${product.name}"`);
-        return prev;
-      }
-      if (!silent) toast.success(`${product.name} added`, { autoClose: 900 });
-      return line
-        ? prev.map((l) => (l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l))
-        : [...prev, { product, quantity: 1 }];
-    });
-  }, []);
+  const addToCart = useCallback(
+    (product: Product, opts: { unit?: ProductUnit | null; silent?: boolean } = {}) => {
+      const unit = opts.unit ?? null;
+      setCart((prev) => {
+        // Stock check in pieces across every line of this product; NULL = untracked
+        if (product.stock_qty !== null) {
+          const used = piecesOf(prev, product.id);
+          if (used + (unit?.factor ?? 1) > product.stock_qty) {
+            playScanError();
+            toast.warn(`Only ${product.stock_qty} pcs in stock for "${product.name}"`);
+            return prev;
+          }
+        }
+        if (!opts.silent) toast.success(`${product.name} added`, { autoClose: 900 });
+        const key = `${product.id}:${unit?.id ?? 0}:0`;
+        const line = prev.find((l) => lineKey(l) === key);
+        return line
+          ? prev.map((l) => (lineKey(l) === key ? { ...l, quantity: l.quantity + 1 } : l))
+          : [...prev, { product, unit, quantity: 1, price: null, is_bonus: false }];
+      });
+    },
+    []
+  );
 
   // Barcode entry point for camera scans. Sound is the only feedback:
   // the scanner already beeped on the read, a buzz means "no such product".
+  // A carton (unit) barcode adds the whole bulk unit, not a piece.
   const handleBarcode = useCallback(
     async (code: string) => {
       const local = products.find((p) => p.barcode === code);
       if (local) {
-        addToCart(local, true);
+        addToCart(local, { silent: true });
+        return;
+      }
+      const byUnit = products.find((p) => p.units?.some((u) => u.barcode === code));
+      if (byUnit) {
+        addToCart(byUnit, { unit: byUnit.units!.find((u) => u.barcode === code), silent: true });
         return;
       }
       try {
         const { data } = await api.get(`/products/barcode/${encodeURIComponent(code)}`);
-        addToCart(data, true);
+        const unit = data.matched_unit_id
+          ? (data.units ?? []).find((u: ProductUnit) => u.id === data.matched_unit_id) ?? null
+          : null;
+        addToCart(data, { unit, silent: true });
       } catch {
         playScanError();
       }
@@ -105,59 +151,121 @@ export default function PosPage() {
     const code = search.trim();
     if (!code) return;
     const exact = products.find((p) => p.barcode === code);
+    const byUnit = exact ? null : products.find((p) => p.units?.some((u) => u.barcode === code));
     if (exact) {
       playScanBeep();
-      addToCart(exact, true);
+      addToCart(exact, { silent: true });
+      setSearch("");
+    } else if (byUnit) {
+      playScanBeep();
+      addToCart(byUnit, { unit: byUnit.units!.find((u) => u.barcode === code), silent: true });
       setSearch("");
     } else if (filtered.length === 1) {
       playScanBeep();
-      addToCart(filtered[0], true);
+      addToCart(filtered[0], { silent: true });
       setSearch("");
     } else if (filtered.length === 0) {
       playScanError();
     }
   };
 
-  const setQty = (productId: number, qty: number) => {
-    setCart((prev) =>
-      prev
-        .map((l) => {
-          if (l.product.id !== productId) return l;
-          const capped = Math.min(Math.max(qty, 0), l.product.stock_qty);
-          if (qty > l.product.stock_qty) toast.warn(`Only ${l.product.stock_qty} in stock`);
-          return { ...l, quantity: capped };
-        })
-        .filter((l) => l.quantity > 0)
-    );
+  // Change one line, then re-merge (unit/bonus changes can land on an existing
+  // line's key) and re-cap the quantity against stock in pieces.
+  const mutateLine = (key: string, mutate: (l: CartLine) => CartLine) => {
+    setCart((prev) => {
+      const idx = prev.findIndex((l) => lineKey(l) === key);
+      if (idx < 0) return prev;
+      let next = mutate(prev[idx]);
+      const rest = prev.filter((_, i) => i !== idx);
+      const dupIdx = rest.findIndex((l) => lineKey(l) === lineKey(next));
+      if (dupIdx >= 0) {
+        next = { ...next, quantity: next.quantity + rest[dupIdx].quantity };
+        rest.splice(dupIdx, 1);
+      }
+      if (next.product.stock_qty !== null) {
+        const avail = next.product.stock_qty - piecesOf(rest, next.product.id);
+        next = { ...next, quantity: Math.min(next.quantity, Math.max(Math.floor(avail / lineFactor(next)), 0)) };
+      }
+      if (next.quantity <= 0) return rest;
+      const out = [...rest];
+      out.splice(Math.min(idx, out.length), 0, next);
+      return out;
+    });
   };
+  const setQty = (key: string, qty: number) => mutateLine(key, (l) => ({ ...l, quantity: qty }));
+  const changeUnit = (key: string, unitId: number) =>
+    mutateLine(key, (l) => ({
+      ...l,
+      unit: unitId ? (l.product.units ?? []).find((u) => u.id === unitId) ?? null : null,
+      price: null,
+    }));
+  const toggleBonus = (key: string) =>
+    mutateLine(key, (l) => ({ ...l, is_bonus: !l.is_bonus, price: null }));
+  const setLinePrice = (key: string, price: number | null) =>
+    mutateLine(key, (l) => ({ ...l, price }));
 
-  const subtotal = cart.reduce(
-    (sum, l) => sum + unitPrice(l.product.sell_price, l.product.discount_pct) * l.quantity, 0
-  );
+  const subtotal = cart.reduce((sum, l) => sum + linePrice(l) * l.quantity, 0);
   const discountAmount = subtotal * (discountPct / 100);
   const taxRate = Number(settings?.tax_rate) || 0;
   const taxAmount = (subtotal - discountAmount) * (taxRate / 100);
   const total = Math.round((subtotal - discountAmount + taxAmount) * 100) / 100;
-  const change = received !== null ? received - total : null;
+
+  // Payment split: prepaid credit first (if toggled on), then money handed
+  // over now; whatever remains is recorded as owing on the client's account.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const selectedClient = clients.find((c) => c.id === clientId) ?? null;
+  // Partner mode recolors the cart so the cashier always knows which kind of
+  // sale is open, even mid-rush with a full cart.
+  const isPartner = selectedClient?.client_type === "partner";
+  const clientCredit = round2(Number(selectedClient?.credit_balance) || 0);
+  const creditApplied = useCredit && selectedClient ? Math.min(clientCredit, total) : 0;
+  const dueAfterCredit = round2(total - creditApplied);
+  const payingNow = payAmount === null ? dueAfterCredit : Math.min(round2(payAmount), dueAfterCredit);
+  const owing = round2(dueAfterCredit - payingNow);
+  const change = received !== null ? received - payingNow : null;
+
+  const openPay = () => {
+    setReceived(null);
+    setPayAmount(null);
+    setUseCredit(false);
+    setMethod("cash");
+    setPayOpen(true);
+  };
 
   const checkout = async () => {
     setPaying(true);
     try {
       const { data } = await api.post("/sales", {
-        items: cart.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
+        items: cart.map((l) => ({
+          product_id: l.product.id,
+          quantity: l.quantity,
+          unit_id: l.unit?.id,
+          // only send a price when the cashier actually overrode it
+          price: l.is_bonus ? undefined : l.price ?? undefined,
+          is_bonus: l.is_bonus || undefined,
+        })),
         client_id: clientId,
         discount_pct: discountPct,
         payment_method: method,
         amount_received: method === "cash" ? received : null,
+        amount_paid: payingNow,
+        use_credit: useCredit,
       });
       setLastSale(data);
       setCart([]);
       setClientId(null);
       setDiscountPct(0);
       setReceived(null);
+      setPayAmount(null);
+      setUseCredit(false);
       setMethod("cash");
       setPayOpen(false);
-      toast.success(`Sale ${data.invoice_number} completed`);
+      if (owing > 0) {
+        toast.info(`Sale ${data.invoice_number} completed, ${money(owing)} owing`);
+      } else {
+        toast.success(`Sale ${data.invoice_number} completed`);
+      }
+      loadClients();
     } catch (err) {
       toast.error(apiError(err, "Could not complete the sale"));
       loadProducts();
@@ -166,7 +274,7 @@ export default function PosPage() {
     }
   };
 
-  const quickCreateClient = async (values: { name: string; phone?: string }) => {
+  const quickCreateClient = async (values: { name: string; phone?: string; client_type?: "normal" | "partner" }) => {
     try {
       const { data } = await api.post("/clients", values);
       await loadClients();
@@ -179,7 +287,7 @@ export default function PosPage() {
   };
 
   return (
-    <div className="flex flex-col gap-4 xl:h-[calc(100vh-8.5rem)] xl:flex-row">
+    <div className="flex flex-col gap-4 xl:h-[calc(100dvh-6.5rem)] xl:flex-row">
       {/* ── Product picker ── */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="mb-3 flex gap-2">
@@ -223,25 +331,30 @@ export default function PosPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
               {filtered.map((p) => {
                 const price = unitPrice(p.sell_price, p.discount_pct);
-                const out = p.stock_qty <= 0;
+                const out = p.stock_qty !== null && p.stock_qty <= 0;
+                // In partner mode, surface the largest bulk unit's price on the card
+                const bulk = isPartner && p.units?.length ? p.units[p.units.length - 1] : null;
                 return (
                   <button
                     key={p.id}
                     type="button"
                     disabled={out}
-                    onClick={() => addToCart(p, true)}
-                    className={`group overflow-hidden rounded-xl border border-line bg-surface-raised text-left shadow-card transition-colors duration-200 ${
+                    onClick={() => addToCart(p, { silent: true })}
+                    // flex-col keeps content top-aligned when the grid row
+                    // stretches this card (a bare <button> centers it, which
+                    // made images drift down on shorter cards)
+                    className={`group flex flex-col overflow-hidden rounded-xl border border-line bg-surface-raised text-left shadow-card transition-colors duration-200 ${
                       out ? "opacity-50" : "cursor-pointer hover:border-brand"
                     }`}
                   >
-                    <div className="relative aspect-square w-full bg-surface-sunken">
+                    <div className="relative aspect-[4/3] w-full shrink-0 bg-surface-sunken">
                       {p.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={p.image_url} alt={p.name} loading="lazy"
-                          className="h-full w-full object-cover" />
+                          className="absolute inset-0 h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full items-center justify-center">
-                          <PackageOpen className="h-8 w-8 text-fg-subtle" />
+                          <PackageOpen className="h-7 w-7 text-fg-subtle" />
                         </div>
                       )}
                       {p.discount_pct > 0 && (
@@ -255,13 +368,20 @@ export default function PosPage() {
                         </span>
                       )}
                     </div>
-                    <div className="p-2.5">
+                    <div className="flex flex-1 flex-col p-2.5">
                       <p className="truncate text-sm font-medium text-fg">{p.name}</p>
-                      <div className="mt-1 flex items-center justify-between">
+                      {bulk && (
+                        <p className="tabular truncate text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                          {bulk.name}: {money(bulk.sell_price)}
+                        </p>
+                      )}
+                      <div className="mt-auto flex items-baseline justify-between pt-1">
                         <span className="tabular text-sm font-semibold text-brand dark:text-brand-soft-foreground">
                           {money(price)}
                         </span>
-                        <span className="text-xs text-fg-subtle">{p.stock_qty} left</span>
+                        {p.stock_qty !== null && (
+                          <span className="tabular text-xs text-fg-subtle">{p.stock_qty} left</span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -273,7 +393,9 @@ export default function PosPage() {
       </div>
 
       {/* ── Cart ── */}
-      <div className="flex w-full flex-col rounded-xl border border-line bg-surface-raised shadow-card xl:w-96">
+      <div className={`flex w-full flex-col overflow-hidden rounded-xl border bg-surface-raised shadow-card xl:h-full xl:w-96 2xl:w-[26rem] ${
+        isPartner ? "border-amber-400/70 dark:border-amber-500/50" : "border-line"
+      }`}>
         <div className="flex items-center justify-between border-b border-line p-3">
           <h2 className="flex items-center gap-2 font-medium text-fg">
             <ShoppingCart className="h-4.5 w-4.5" /> Cart
@@ -289,6 +411,23 @@ export default function PosPage() {
           )}
         </div>
 
+        {/* Who this sale is for: amber = partner (wholesale), brand = named client */}
+        {selectedClient && (
+          <div className={`flex items-center gap-2 border-b px-3 py-2 text-sm ${
+            isPartner
+              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+              : "border-line bg-brand-soft text-brand-soft-foreground"
+          }`}>
+            {isPartner
+              ? <Handshake className="h-4 w-4 shrink-0" />
+              : <UserRound className="h-4 w-4 shrink-0" />}
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-semibold">{isPartner ? "Partner sale" : "Client sale"}</span>
+              : {selectedClient.name}
+            </span>
+          </div>
+        )}
+
         <div className="max-h-72 min-h-24 flex-1 overflow-y-auto xl:max-h-none">
           {cart.length === 0 ? (
             <p className="px-4 py-10 text-center text-sm text-fg-muted">
@@ -297,33 +436,92 @@ export default function PosPage() {
           ) : (
             <ul className="divide-y divide-line">
               {cart.map((l) => {
-                const price = unitPrice(l.product.sell_price, l.product.discount_pct);
+                const key = lineKey(l);
+                const price = linePrice(l);
+                const listPrice = lineListPrice(l);
+                const negotiated = !l.is_bonus && l.price !== null && l.price !== listPrice;
+                const hasUnits = (l.product.units?.length ?? 0) > 0;
                 return (
-                  <li key={l.product.id} className="flex items-center gap-2 px-3 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-fg">{l.product.name}</p>
-                      <p className="tabular text-xs text-fg-muted">
-                        {money(price)} × {l.quantity} = {money(price * l.quantity)}
+                  <li key={key} className="space-y-1.5 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                        {l.product.name}
+                        {l.is_bonus && (
+                          <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                            Free
+                          </span>
+                        )}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button type="button" aria-label="Decrease quantity"
-                        onClick={() => setQty(l.product.id, l.quantity - 1)}
-                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken">
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="tabular w-7 text-center text-sm font-medium text-fg">{l.quantity}</span>
-                      <button type="button" aria-label="Increase quantity"
-                        onClick={() => setQty(l.product.id, l.quantity + 1)}
-                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken">
-                        <Plus className="h-3.5 w-3.5" />
+                      <button type="button" title={l.is_bonus ? "Make it a paid line" : "Mark as FREE bonus"}
+                        aria-label={l.is_bonus ? "Make it a paid line" : "Mark as FREE bonus"}
+                        onClick={() => toggleBonus(key)}
+                        className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors duration-200 ${
+                          l.is_bonus
+                            ? "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300"
+                            : "text-fg-subtle hover:bg-surface-sunken hover:text-fg"
+                        }`}>
+                        <Gift className="h-3.5 w-3.5" />
                       </button>
                       <button type="button" aria-label="Remove item"
-                        onClick={() => setQty(l.product.id, 0)}
-                        className="ml-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-rose-500 transition-colors duration-200 hover:bg-rose-50 dark:hover:bg-rose-500/10">
+                        onClick={() => setQty(key, 0)}
+                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-rose-500 transition-colors duration-200 hover:bg-rose-50 dark:hover:bg-rose-500/10">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                      {hasUnits && (
+                        <Select
+                          size="small"
+                          className="!w-28 shrink-0"
+                          value={l.unit?.id ?? 0}
+                          onChange={(v) => changeUnit(key, v)}
+                          options={[
+                            { value: 0, label: "Piece" },
+                            ...(l.product.units ?? []).map((u) => ({ value: u.id, label: u.name })),
+                          ]}
+                        />
+                      )}
+                      {l.is_bonus ? (
+                        <span className="flex-1 text-xs text-fg-subtle">Bonus, not charged</span>
+                      ) : (
+                        <InputNumber
+                          size="small" min={0} step={0.25} prefix="$" className="!w-24"
+                          title="Line price, editable for negotiated deals. Clear it to return to the list price"
+                          status={negotiated ? "warning" : undefined}
+                          value={price}
+                          onChange={(v) => setLinePrice(key, v === null ? null : Number(v))}
+                        />
+                      )}
+                      <div className="ml-auto flex items-center gap-1">
+                        <button type="button" aria-label="Decrease quantity"
+                          onClick={() => setQty(key, l.quantity - 1)}
+                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken">
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <InputNumber
+                          size="small" min={0} controls={false} aria-label="Quantity"
+                          className="!w-12 [&_input]:!text-center"
+                          value={l.quantity}
+                          onChange={(v) => { if (v !== null) setQty(key, Number(v)); }}
+                        />
+                        <button type="button" aria-label="Increase quantity"
+                          onClick={() => setQty(key, l.quantity + 1)}
+                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken">
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="tabular text-right text-xs text-fg-muted">
+                      {l.is_bonus ? (
+                        `${l.quantity} × FREE`
+                      ) : (
+                        <>
+                          {negotiated && <s className="mr-1 text-fg-subtle">{money(listPrice)}</s>}
+                          {money(price)} × {l.quantity} = {money(price * l.quantity)}
+                        </>
+                      )}
+                      {l.unit && ` (${l.quantity * l.unit.factor} pcs)`}
+                    </p>
                   </li>
                 );
               })}
@@ -338,13 +536,33 @@ export default function PosPage() {
               placeholder="Walk-in customer"
               allowClear
               showSearch
+              status={isPartner ? "warning" : undefined}
               optionFilterProp="label"
               value={clientId}
               onChange={(v) => setClientId(v ?? null)}
               options={clients.map((c) => ({
                 value: c.id,
                 label: c.phone ? `${c.name} (${c.phone})` : c.name,
+                client: c,
               }))}
+              optionRender={(opt) => {
+                const c = (opt.data as { client: Client }).client;
+                return (
+                  <span className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+                    {c.client_type === "partner" && (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        Partner
+                      </span>
+                    )}
+                    {Number(c.outstanding) > 0 && (
+                      <span className="tabular shrink-0 text-xs text-rose-500 dark:text-rose-400">
+                        owes {money(c.outstanding)}
+                      </span>
+                    )}
+                  </span>
+                );
+              }}
             />
             <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => setQuickClientOpen(true)}
               aria-label="Quick add client" />
@@ -370,9 +588,9 @@ export default function PosPage() {
                 <span>Tax ({taxRate}%)</span><span className="tabular">{money(taxAmount)}</span>
               </div>
             )}
-            <div className="flex justify-between border-t border-line pt-1.5 text-base font-semibold text-fg">
-              <span>Total</span>
-              <span className="tabular">{money(total)}</span>
+            <div className="flex items-baseline justify-between border-t border-line pt-1.5">
+              <span className="text-base font-semibold text-fg">Total</span>
+              <span className="tabular text-2xl font-bold text-fg">{money(total)}</span>
             </div>
             {settings && (
               <div className="flex justify-between text-xs text-fg-subtle">
@@ -381,8 +599,23 @@ export default function PosPage() {
             )}
           </div>
 
-          <Button type="primary" size="large" block disabled={cart.length === 0}
-            onClick={() => { setReceived(null); setPayOpen(true); }}>
+          {selectedClient && (Number(selectedClient.credit_balance) > 0 || Number(selectedClient.outstanding) > 0) && (
+            <p className="text-xs text-fg-subtle">
+              {Number(selectedClient.credit_balance) > 0 && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  Prepaid {money(selectedClient.credit_balance)}
+                </span>
+              )}
+              {Number(selectedClient.credit_balance) > 0 && Number(selectedClient.outstanding) > 0 && " · "}
+              {Number(selectedClient.outstanding) > 0 && (
+                <span className="text-rose-600 dark:text-rose-400">
+                  Owes {money(selectedClient.outstanding)}
+                </span>
+              )}
+            </p>
+          )}
+
+          <Button type="primary" size="large" block disabled={cart.length === 0} onClick={openPay}>
             Charge {money(total)}
           </Button>
           {lastSale && (
@@ -399,59 +632,174 @@ export default function PosPage() {
       <Modal
         open={payOpen}
         onCancel={() => setPayOpen(false)}
+        centered
         title="Take payment"
-        okText={`Confirm ${money(total)}`}
+        okText={owing > 0 ? `Confirm, ${money(owing)} owing` : `Confirm ${money(total)}`}
         onOk={checkout}
         confirmLoading={paying}
-        okButtonProps={{ disabled: method === "cash" && received !== null && received < total }}
+        okButtonProps={{
+          size: "large",
+          disabled:
+            (owing > 0 && !clientId) ||
+            (method === "cash" && payingNow > 0 && received !== null && received < payingNow),
+        }}
       >
         <div className="space-y-4 py-2">
+          {/* Amount due + who is paying */}
           <div className="rounded-lg bg-surface-sunken p-3 text-center">
             <p className="text-sm text-fg-muted">Amount due</p>
             <p className="tabular text-3xl font-semibold text-fg">{money(total)}</p>
             {settings && <p className="tabular text-sm text-fg-subtle">{khr(total, settings.exchange_rate)}</p>}
+            <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs text-fg-muted">
+              {selectedClient ? (
+                <>
+                  {isPartner
+                    ? <Handshake className="h-3.5 w-3.5" />
+                    : <UserRound className="h-3.5 w-3.5" />}
+                  <span className="font-medium text-fg">{selectedClient.name}</span>
+                  {isPartner && (
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                      Partner
+                    </span>
+                  )}
+                </>
+              ) : (
+                "Walk-in customer"
+              )}
+            </p>
           </div>
-          <Segmented
-            block
-            value={method}
-            onChange={(v) => setMethod(v as PaymentMethod)}
-            options={[
-              { label: "Cash", value: "cash" },
-              { label: "KHQR", value: "khqr" },
-              { label: "Card", value: "card" },
-              { label: "Bank", value: "bank" },
-            ]}
-          />
-          {method === "cash" && (
-            <div>
-              <p className="mb-1 text-sm text-fg-muted">Cash received</p>
-              <InputNumber
-                autoFocus size="large" className="!w-full" min={0} prefix="$"
-                value={received} onChange={(v) => setReceived(v === null ? null : Number(v))}
+
+          {selectedClient && clientCredit > 0 && (
+            <label className="flex cursor-pointer items-center justify-between rounded-lg border border-line px-3 py-2.5 transition-colors duration-200 hover:border-line-strong">
+              <span className="text-sm text-fg">
+                Use prepaid balance
+                <span className="tabular ml-1 text-fg-muted">({money(clientCredit)} available)</span>
+              </span>
+              <Switch checked={useCredit} onChange={(v) => { setUseCredit(v); setPayAmount(null); setReceived(null); }} />
+            </label>
+          )}
+
+          {dueAfterCredit > 0 && (
+            <>
+              <Segmented
+                block
+                value={method}
+                onChange={(v) => setMethod(v as PaymentMethod)}
+                options={[
+                  { label: <span className="flex items-center justify-center gap-1.5"><Banknote className="h-4 w-4" />Cash</span>, value: "cash" },
+                  { label: <span className="flex items-center justify-center gap-1.5"><QrCode className="h-4 w-4" />KHQR</span>, value: "khqr" },
+                  { label: <span className="flex items-center justify-center gap-1.5"><CreditCard className="h-4 w-4" />Card</span>, value: "card" },
+                  { label: <span className="flex items-center justify-center gap-1.5"><Landmark className="h-4 w-4" />Bank</span>, value: "bank" },
+                ]}
               />
-              {change !== null && change >= 0 && (
-                <p className="tabular mt-2 text-sm text-emerald-600 dark:text-emerald-400">
-                  Change: {money(change)} {settings ? `(${khr(change, settings.exchange_rate)})` : ""}
-                </p>
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-sm text-fg-muted">Paying now</p>
+                  <div className="flex gap-1.5">
+                    <button type="button" className={chipCls(payingNow === dueAfterCredit)}
+                      onClick={() => setPayAmount(null)}>
+                      Full
+                    </button>
+                    <button type="button" className={chipCls(payAmount !== null && payingNow === 0)}
+                      onClick={() => { setPayAmount(0); setReceived(null); }}>
+                      Pay later
+                    </button>
+                  </div>
+                </div>
+                <InputNumber
+                  size="large" className="!w-full" min={0} max={dueAfterCredit} prefix="$"
+                  value={payAmount === null ? dueAfterCredit : payAmount}
+                  onChange={(v) => setPayAmount(v === null ? 0 : Number(v))}
+                />
+              </div>
+              {method === "cash" && payingNow > 0 && (
+                <div>
+                  <p className="mb-1 text-sm text-fg-muted">Cash received</p>
+                  <InputNumber
+                    autoFocus size="large" className="!w-full" min={0} prefix="$"
+                    value={received} onChange={(v) => setReceived(v === null ? null : Number(v))}
+                  />
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <button type="button" className={chipCls(received !== null && received === payingNow)}
+                      onClick={() => setReceived(payingNow)}>
+                      Exact
+                    </button>
+                    {[5, 10, 20, 50, 100].map((d) => (
+                      <button key={d} type="button" disabled={d < payingNow}
+                        className={chipCls(received === d)} onClick={() => setReceived(d)}>
+                        ${d}
+                      </button>
+                    ))}
+                  </div>
+                  {change !== null && change >= 0 && (
+                    <p className="tabular mt-2 text-sm font-semibold text-fg">
+                      Change: {money(change)}
+                      {settings && <span className="ml-1 font-normal text-fg-muted">({khr(change, settings.exchange_rate)})</span>}
+                    </p>
+                  )}
+                  {change !== null && change < 0 && (
+                    <p className="tabular mt-2 text-sm text-rose-600 dark:text-rose-400">
+                      Missing {money(Math.abs(change))}
+                    </p>
+                  )}
+                </div>
               )}
-              {change !== null && change < 0 && (
-                <p className="tabular mt-2 text-sm text-rose-600 dark:text-rose-400">
-                  Missing {money(Math.abs(change))}
-                </p>
-              )}
+            </>
+          )}
+
+          {/* What confirming will record */}
+          <div className="space-y-1 rounded-lg border border-line p-3 text-sm">
+            {creditApplied > 0 && (
+              <div className="flex justify-between text-fg-muted">
+                <span>Prepaid applied</span>
+                <span className="tabular">-{money(creditApplied)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-fg-muted">
+              <span>Paying now</span>
+              <span className="tabular">{money(payingNow)}</span>
             </div>
+            {owing > 0 && (
+              <div className="flex justify-between font-medium text-fg">
+                <span>Owing after</span>
+                <span className="tabular">{money(owing)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between border-t border-line pt-1.5">
+              <span className="text-fg-muted">Invoice will be</span>
+              <StatusBadge status={owing <= 0 ? "paid" : payingNow + creditApplied > 0 ? "partial" : "unpaid"} />
+            </div>
+          </div>
+
+          {owing > 0 && clientId && (
+            <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm text-brand-soft-foreground">
+              {money(owing)} will be recorded as owing for {selectedClient?.name}.
+            </p>
+          )}
+          {owing > 0 && !clientId && (
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+              Select a client to sell with an unpaid balance.
+            </p>
           )}
         </div>
       </Modal>
 
       {/* ── Quick add client ── */}
-      <Modal open={quickClientOpen} onCancel={() => setQuickClientOpen(false)} title="Quick add client" footer={null} destroyOnHidden>
-        <Form layout="vertical" onFinish={quickCreateClient} requiredMark={false}>
+      <Modal open={quickClientOpen} onCancel={() => setQuickClientOpen(false)} title="Quick add client"
+        footer={null} destroyOnHidden centered width={420}>
+        <Form layout="vertical" onFinish={quickCreateClient} requiredMark={false}
+          initialValues={{ client_type: "normal" }}>
           <Form.Item label="Name" name="name" rules={[{ required: true, message: "Client name is required" }]}>
-            <Input placeholder="Client name" />
+            <Input placeholder="Client name" autoFocus />
           </Form.Item>
           <Form.Item label="Phone" name="phone">
             <Input placeholder="Phone number" />
+          </Form.Item>
+          <Form.Item label="Type" name="client_type">
+            <Segmented block options={[
+              { label: "Normal", value: "normal" },
+              { label: "Partner (wholesale)", value: "partner" },
+            ]} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>Create and select</Button>
         </Form>

@@ -49,10 +49,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>
           {/* Swipe/drag to dismiss; visual style lives in globals.css on the app's
-              surface tokens so toasts follow light/dark automatically */}
+              surface tokens so toasts follow light/dark automatically.
+              stacked: toasts pile on top of each other with the newest in front
+              (hover/tap expands) instead of pushing a growing column downward */}
           <ToastContainer
             position="top-right"
             autoClose={2500}
+            stacked
             newestOnTop
             closeOnClick
             draggable

@@ -1,4 +1,5 @@
 "use client";
+import { Fragment } from "react";
 import type { Sale, Settings } from "@/lib/types";
 import { money, khr, fmtDate } from "@/lib/format";
 
@@ -18,20 +19,34 @@ export default function Receipt({ sale, settings }: { sale: Sale; settings: Sett
       {sale.cashier_name ? <p>Cashier: {sale.cashier_name}</p> : null}
       {sale.client_name ? <p>Client: {sale.client_name}</p> : null}
       <hr className="my-2 border-dashed border-black" />
-      <table className="w-full">
+      <table className="w-full table-fixed">
+        <thead>
+          <tr className="text-left">
+            <th className="w-1/4 font-normal">Qty</th>
+            <th className="w-1/4 font-normal">Unit</th>
+            <th className="w-1/4 text-right font-normal">Price</th>
+            <th className="w-1/4 text-right font-normal">Total</th>
+          </tr>
+        </thead>
         <tbody>
           {sale.items?.map((it) => (
-            <tr key={it.id}>
-              <td className="align-top">
-                {it.name_snapshot}
-                <br />
-                <span>
-                  {it.quantity} x {money(it.price)}
-                  {it.discount_pct > 0 ? ` (-${it.discount_pct}%)` : ""}
-                </span>
-              </td>
-              <td className="whitespace-nowrap text-right align-bottom">{money(it.line_total)}</td>
-            </tr>
+            <Fragment key={it.id}>
+              <tr>
+                <td colSpan={4} className="pt-1 font-bold">
+                  {it.name_snapshot}
+                  {it.discount_pct > 0 && !it.is_bonus ? ` (-${it.discount_pct}%)` : ""}
+                </td>
+              </tr>
+              <tr>
+                <td className="align-top">{it.quantity}</td>
+                <td className="align-top">
+                  {it.unit_name ?? "Piece"}
+                  {it.unit_factor > 1 ? <><br />= {it.quantity * it.unit_factor} pcs</> : null}
+                </td>
+                <td className="whitespace-nowrap text-right align-top">{it.is_bonus ? "FREE" : money(it.price)}</td>
+                <td className="whitespace-nowrap text-right align-top">{it.is_bonus ? "FREE" : money(it.line_total)}</td>
+              </tr>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -57,6 +72,14 @@ export default function Receipt({ sale, settings }: { sale: Sale; settings: Sett
             <>
               <tr><td>Received</td><td className="text-right">{money(sale.amount_received)}</td></tr>
               <tr><td>Change</td><td className="text-right">{money(sale.change_due)}</td></tr>
+            </>
+          )}
+          {Number(sale.amount_paid) < Number(sale.total) && (
+            <>
+              <tr><td>Paid</td><td className="text-right">{money(sale.amount_paid)}</td></tr>
+              <tr className="font-bold">
+                <td>BALANCE DUE</td><td className="text-right">{money(Number(sale.total) - Number(sale.amount_paid))}</td>
+              </tr>
             </>
           )}
         </tbody>

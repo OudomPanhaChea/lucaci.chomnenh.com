@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  DollarSign, ReceiptText, Package, TrendingUp, AlertTriangle, ArrowRight,
+  DollarSign, ReceiptText, Package, TrendingUp, AlertTriangle, ArrowRight, HandCoins,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -10,15 +10,21 @@ import {
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
 import { StatCard } from "@/components/ui/stat-card";
+import { ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SectionHeader } from "@/components/ui/section-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { money, fmtDate } from "@/lib/format";
 import type { Sale } from "@/lib/types";
 
+const REVENUE_CHART: ChartConfig = {
+  revenue: { label: "Revenue", color: "var(--chart-1)" },
+};
+
 interface DashboardData {
   today: { invoice_count: number; revenue: number; avg_sale: number; profit: number; items_sold: number };
   yesterday_revenue: number;
+  receivables: { total: number; invoices: number };
   week_series: { period: string; revenue: number; invoice_count: number }[];
   recent_sales: Sale[];
   low_stock: { id: number; name: string; stock_qty: number; low_stock_alert: number }[];
@@ -33,7 +39,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(load, [load]);
-  useRealtime(["sale:created", "sale:voided", "product:changed"], load);
+  useRealtime(["sale:created", "sale:updated", "sale:voided", "product:changed"], load);
 
   const t = data?.today;
   const diff =
@@ -48,7 +54,7 @@ export default function DashboardPage() {
         subtitle="Live overview, updates in real time as sales happen"
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="Today's revenue"
           value={money(t?.revenue)}
@@ -68,6 +74,13 @@ export default function DashboardPage() {
           hint={`${data?.counts.products ?? 0} products in inventory`} />
         <StatCard title="Today's profit" value={money(t?.profit)} icon={TrendingUp} accent="rose"
           hint="Revenue minus tax and cost" />
+        <StatCard title="Outstanding" value={money(data?.receivables.total)} icon={HandCoins}
+          accent={Number(data?.receivables.total) > 0 ? "rose" : "emerald"}
+          hint={
+            Number(data?.receivables.invoices) > 0
+              ? `${data?.receivables.invoices} unpaid or partial invoices`
+              : "All invoices fully paid"
+          } />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -75,26 +88,30 @@ export default function DashboardPage() {
           <h2 className="mb-3 font-medium text-fg">Revenue, last 14 days</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data?.week_series ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <AreaChart data={data?.week_series ?? []} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#304a59" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#304a59" stopOpacity={0.02} />
+                  <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-                <XAxis dataKey="period" tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
+                <CartesianGrid vertical={false} stroke="var(--line)" />
+                <XAxis dataKey="period" tickLine={false} axisLine={false}
+                  tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} tickMargin={8}
                   tickFormatter={(v: string) => v.slice(5)} />
-                <YAxis tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} width={48}
+                <YAxis tickLine={false} axisLine={false} width={48} tickMargin={4}
+                  tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
                   tickFormatter={(v: number) => `$${v}`} />
                 <Tooltip
-                  formatter={(value) => [money(value as number), "Revenue"]}
-                  contentStyle={{
-                    background: "var(--surface-overlay)", border: "1px solid var(--line)",
-                    borderRadius: 8, color: "var(--fg)",
-                  }}
+                  cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
+                  content={
+                    <ChartTooltipContent config={REVENUE_CHART}
+                      valueFormatter={(v) => money(v)} />
+                  }
                 />
-                <Area type="monotone" dataKey="revenue" stroke="#4e7288" strokeWidth={2} fill="url(#rev)" />
+                <Area type="monotone" dataKey="revenue" stroke="var(--chart-1)" strokeWidth={2}
+                  fill="url(#fillRevenue)" dot={false}
+                  activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--surface-raised)" }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>

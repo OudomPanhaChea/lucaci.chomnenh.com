@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-09 (v1 complete + branding assets + profile page)
+> Last updated: 2026-07-11 (partner/wholesale sales: bulk units, bonus lines, optional stock)
 
 ## 1. What this project is
 
@@ -20,7 +20,9 @@ the business + settings rows). The app itself has no tenant-switching UI on purp
 
 - **Owner / sole developer:** Oudompanha (Cambodia)
 - **Working directory:** `E:\RCX\lucaci.chomnenh.com`
-- **Production host:** `lucaci.chomnenh.com` (user has a Hostinger Business plan — see DEPLOYMENT.md)
+- **Production host:** `lucaci.chomnenh.com` on the company's Hostinger Business shared
+  plan as two Node apps, web + `api.` subdomain (see DEPLOYMENT-HOSTINGER.md; the VPS
+  route in DEPLOYMENT.md is the fallback). Repo: github.com/OudomPanhaChea/lucaci.chomnenh.com.
 - **Brand:** spelled **Chomnenh** (per the logo; earlier docs said "Chamnenh"). Colors: primary `#304A59`,
   ink `#142332`, accent orange `#FFA040` (the logo dot). Assets in `client/public/images/`:
   `Chomnenh-logo.png` (wordmark, dark; use `Chomnenh-logo-white.png` on dark surfaces),
@@ -40,7 +42,7 @@ the business + settings rows). The app itself has no tenant-switching UI on purp
 | Realtime | Socket.IO — single `admins` room, events below |
 | Auth | JWT in httpOnly cookie `chamnenh_token` (+ token returned in body for the socket handshake) |
 | Barcode | `react-zxing` (zxing-wasm) camera scanning + keyboard-wedge scanner support in POS; decoder WASM served locally from `client/public/zxing_reader.wasm` (copied by `postinstall`) |
-| Images | Local disk `server/uploads/products/` via multer, served at `/uploads/*` (see DEPLOYMENT.md for alternatives) |
+| Images | Stored in the DB (`images` table, MEDIUMBLOB) and served at `/uploads/img/:id` with immutable 30d caching; multer memory storage, controllers persist via `storeUploadedImage()` and clean up via `deleteUploadedFile()` (`server/middleware/upload.js`). Survives managed redeploys, one mysqldump backs up everything; needs `max_allowed_packet` >= 16MB. Legacy pre-change files still served from `server/uploads/` |
 
 ### Roles (`users.role`)
 `owner` (full, only one manages staff/settings) · `admin` (manager: products, reports, void, clients delete) · `cashier` (sell, view products/clients).
@@ -49,9 +51,10 @@ Enforced server-side by `requireRole` in `server/routes/index.js`; sidebar items
 ## 2. Realtime events (Socket.IO)
 
 Server emits to room `admins` (helper `emitToAdmins` in `server/config/socket.js`):
-- `sale:created` / `sale:voided` — payload is the full sale with items
+- `sale:created` / `sale:updated` / `sale:voided` — payload is the full sale with items
+  and payments (`sale:updated` fires when a payment is received on an invoice)
 - `product:changed` — `{ type: create|update|stock|delete|category, id? }`
-- `client:changed` — `{ type, id }`
+- `client:changed` — `{ type, id }` (also fired when credit/deposits change a client)
 - `settings:changed` — full settings row
 
 Client: `services/socket.ts` (single shared socket, token from `/auth/me`), subscribe with
@@ -59,8 +62,8 @@ Client: `services/socket.ts` (single shared socket, token from `/auth/me`), subs
 
 ## 3. Database (`server/database/schema.sql`)
 
-Tables: `businesses`, `users`, `categories`, `products`, `clients`, `sales`,
-`sale_items`, `stock_movements`, `settings` (one row per business,
+Tables: `businesses`, `users`, `categories`, `products`, `product_units`, `clients`,
+`sales`, `sale_items`, `stock_movements`, `payments`, `images`, `settings` (one row per business,
 `UNIQUE(business_id)`; `banner_urls` is a JSON array of up to 4 menu banners).
 Unique keys are per business: `(business_id, email)`, `(business_id, barcode)`,
 `(business_id, name)` on categories, `(business_id, invoice_number)`.
@@ -77,6 +80,27 @@ Key conventions carried over from WisePOS:
 - **Totals recomputed server-side** in `createSale` — the cart's displayed totals are never trusted.
 - Sale creation locks product rows (`FOR UPDATE`) and rejects overselling; voiding restores
   stock. Every stock change writes a `stock_movements` row.
+- **Credit sales + prepaid (2026-07-10):** `sales.status` is
+  `paid|partial|unpaid|voided` with `sales.amount_paid`; anything not fully paid
+  requires a `client_id`. `clients.credit_balance` holds prepaid money (deposits).
+  Every money movement is a `payments` row (type `sale|deposit|refund`, signed
+  amount, method incl. `credit` = spent from prepaid, which is NOT new money in).
+  Voiding writes negative refund mirror rows and restores spent prepaid credit.
+  Reports treat revenue as accrual (all non-voided sales) and expose
+  `collected`/`outstanding` alongside.
+- **Partner/wholesale (2026-07-11):** `clients.client_type` is `normal|partner`.
+  `product_units` holds per-product bulk units ("Box of 12": `factor` pieces per unit,
+  own `sell_price`, optional carton `barcode` scannable at POS). Stock stays counted in
+  base pieces; a unit line moves `qty × factor` pieces. `sale_items` snapshots
+  `unit_name`/`unit_factor` (NULL/1 = piece) and `is_bonus` (FREE goods with a bulk
+  deal: price forced 0, stock and cost still tracked so profit shows the margin hit).
+  Cart lines may send `unit_id`, `price` (negotiated override), `is_bonus`; the server
+  resolves units/prices itself and accumulates per-product piece checks across lines.
+  Void restores exactly what the sale's `stock_movements` took. Piece-count reports use
+  `SUM(quantity * unit_factor)`.
+- **Optional stock (2026-07-11):** `products.stock_qty` is nullable; NULL = not tracked
+  (no oversell checks, no movements, never "low", `track_stock` field in the product
+  form toggles it; turning tracking on logs an `initial` movement).
 - Soft delete only on `products.is_deleted`; everything else hard-deletes.
 - Money is `DECIMAL(10,2)`; DB session timezone pinned `+07:00` in `config/db.js`.
 - Prices are tax-exclusive; single `settings.tax_rate` added at payment (0 by default).
@@ -205,6 +229,125 @@ npm run build
   backdrop tap or nav click; header shows a hamburger only on mobile.
 - **Public menu**: banner carousel (scroll-snap, auto-advance 4.5s, dots, no library)
   above the search; admin "Public menu" link is a plain `<a target="_blank">`.
+
+### Done (2026-07-10, batch 3): payments, credit sales, prepaid balances
+- Schema migration `2026-07-10-payments-and-credit.sql` (applied locally): sales
+  status enum + `amount_paid`, `clients.credit_balance`, `payments` ledger table
+  (see section 3). Backfills ledger rows for pre-existing paid sales.
+- Server: `createSale` accepts `amount_paid` (money now) + `use_credit` (spend
+  prepaid first); unpaid remainder requires a client; client row locked FOR UPDATE.
+  New endpoints: `POST /sales/:id/payments` (receive payment, method `credit`
+  spends prepaid), `POST /clients/:id/deposits`, `GET /clients/:id/statement?from&to`
+  (sales + ledger + period totals + overall owing/prepaid). All smoke-tested via
+  curl (deposit, unpaid→partial→paid-by-credit, overpay 409-style 400, prepaid
+  checkout, void restores credit + refund mirrors, reports collected/outstanding).
+- POS: payment modal has prepaid-balance switch, "Paying now" input (partial /
+  0 = pay later; amber/rose notices, client required to owe), change computed
+  against paying-now; client hint line shows Prepaid/Owes; receipt prints
+  Paid + BALANCE DUE when not settled.
+- Invoices: status filter paid/partial/unpaid/voided, Balance column, drawer
+  shows Paid/Balance rows + payment history, "Receive payment" button
+  (`components/receive-payment-modal.tsx`, shared), void allowed on any
+  non-voided status (voided badge is now slate, unpaid rose, partial amber).
+- Clients: Owing + Prepaid columns (Sex column dropped from table, still in the
+  edit form); drawer widened to 720 with date-range filter (presets), period
+  summary (purchases/purchased/paid/owing), tabs for purchase history (per-row
+  Pay button) and payments/deposits ledger, "Add deposit" modal.
+- Dashboard: 5th stat card "Outstanding" (receivables total + open invoice
+  count, realtime). Reports: Collected card with outstanding hint; revenue is
+  accrual. `client/next build` passes (17 routes).
+
+### Done (2026-07-10, batch 4): Hostinger deployment prep
+- Decision: deploy on the company's Hostinger Business shared plan (owner rejected VPS)
+  as two hPanel Node apps: `server/` on `api.lucaci.chomnenh.com`, `client/` on
+  `lucaci.chomnenh.com` with `API_ORIGIN` env; Socket.IO degrades to long-polling
+  through the Next rewrite (that's fine, don't force websocket). Full steps in
+  **DEPLOYMENT-HOSTINGER.md**; DEPLOYMENT.md (VPS) demoted to fallback.
+- Image uploads moved into the database (owner rejected Cloudinary; a Cloudinary
+  mode was built first, then replaced same day). New `images` table (migration
+  `2026-07-10-image-blobs.sql`, applied locally; also in schema.sql), multer memory
+  storage, `storeUploadedImage(file)` returns the `/uploads/img/:id` URL stored in
+  `*_url` columns, `serveStoredImage` handles GET with immutable caching (ids never
+  reused), `deleteUploadedFile` deletes the row (or unlinks legacy disk files).
+  Smoke-tested end to end incl. a 4MB upload, replace-deletes-old-row, remove.
+  Local XAMPP MariaDB had `max_allowed_packet=1M` which breaks >1MB image INSERTs;
+  raised to 16M live and in `C:\xampp\mysql\bin\my.ini`. DB size is the tradeoff
+  the owner accepted: images count against Hostinger's per-database cap.
+- `npm start`/`seed` now use `--env-file-if-exists` (Node 22.9+) so they run with
+  hPanel-injected env vars. `.env.example` gained `BUSINESS_ID`. `trust proxy` was
+  already set; behind Hostinger's proxy + Next it may need `2` (guide's gotchas).
+
+### Done (2026-07-11): partner/wholesale sales
+- Migration `2026-07-10-partner-units.sql` (applied locally, in schema.sql too):
+  `product_units`, `clients.client_type`, nullable `products.stock_qty`,
+  `sale_items.unit_name/unit_factor/is_bonus` (details in section 3).
+- Server: products CRUD takes a `units` JSON field (replace-all per save) and
+  `track_stock`; barcode lookup also matches carton barcodes (`matched_unit_id`);
+  createSale resolves `unit_id`/`price` override/`is_bonus` server-side. All
+  smoke-tested via curl (unit sale with negotiated price + FREE bonus + untracked
+  product, oversell in pieces, wrong-unit reject, untracked adjust reject, void
+  restore, tracking on/off toggle, unit replace).
+- Client (`next build` passes, 17 routes): inventory form has a Track-stock switch
+  and a bulk-units editor, stock column shows "Not tracked" or a boxes hint; POS cart
+  lines are product+unit keyed with a unit picker, editable line price, and a Gift
+  (FREE bonus) toggle, unit barcodes add the whole box, stock capped in pieces across
+  lines; clients page has a Normal/Partners filter, partner tag, and Type field;
+  invoices drawer and receipt print unit names, pieces, and FREE lines.
+- Toasts now use react-toastify v11 `stacked` mode: they pile with the newest in
+  front instead of pushing a growing column (hover/tap expands the pile).
+- Local dev gotcha: XAMPP MariaDB logs "LSN is in the future" InnoDB errors at start
+  (leftover unclean state) but runs fine; if it is down, start
+  `C:\xampp\mysql\bin\mysqld.exe --defaults-file=C:\xampp\mysql\bin\my.ini`.
+  Test data added: product #4 Vitamin C Serum (barcode SERUM001, unit "Box of 12"
+  barcode BOX12TEST), #5 Gift Wrapping (untracked), client #3 Sokha Distribution
+  (partner), one voided wholesale invoice.
+
+### Done (2026-07-11, batch 2): POS/clients/inventory UX pass
+- POS partner-mode clarity: cart border + a banner strip under the cart header turn
+  amber with a Handshake icon on "Partner sale: name" (brand-tinted "Client sale" for
+  normal named clients, nothing for walk-in); client Select shows warning (orange)
+  status when a partner is selected, dropdown options render an amber Partner pill +
+  "owes $X"; in partner mode product cards show the largest bulk unit's price.
+- POS cart: quantity is now a typeable InputNumber (bulk qty like 50 boxes),
+  negotiated price overrides get warning status + struck list price in the line
+  summary (clearing the input returns to list price), Total row enlarged.
+- Payment modal: header card shows client name + Partner pill (amber tint on partner
+  sales), method Segmented has lucide icons, "Paying now" has Full / Pay later chips,
+  cash gets quick-amount chips (Exact, $5-$100, disabled below amount due), and a
+  summary box previews Prepaid applied / Paying now / Owing after + the resulting
+  invoice StatusBadge. Quick-add client modal gained a Normal/Partner Segmented.
+- Inventory product form: split into labeled sections (Details / Pricing / Stock /
+  Bulk units / Image and visibility) via a local FormSection divider, body scrolls at
+  70vh so footer buttons stay visible, units editor gained column headers, Track
+  stock is a bordered row with explanation. Stock adjust modal shows current stock,
+  Segmented direction, and an "After applying: N pcs" live preview (rose if negative).
+- Clients: filter Segmented shows counts, partner rows get amber Handshake avatars,
+  form type is a full-width Segmented, statement drawer title shows a Partner tag.
+- Global slim scrollbars in globals.css (`scrollbar-width: thin` + 6px ::-webkit
+  rules on `*`, thumb = --line-strong).
+
+### Done (2026-07-11, batch 3): app-wide UI polish pass
+- Reusable `components/ui/button.tsx` (re-exports AntD Button); every page imports
+  Button from it now. Button heights raised app-wide via ConfigProvider component
+  tokens in theme-provider (38/44/28px), which also covers Modal/Popconfirm footers.
+- All 9 Modals are `centered`. RangePicker is single-column under 640px via
+  globals.css (second panel hidden, its nav arrows re-enabled, presets become a
+  chip row on top of the calendar).
+- POS: page fills the viewport on xl (`100dvh-6.5rem`), cart is full height
+  (24rem xl / 26rem 2xl; owner asked for wider then dialed it back down). Product cards fixed: `flex flex-col` on the card
+  button (a bare `<button>` vertically centers content, so images drifted down on
+  grid-stretched cards) + shorter `aspect-[4/3]` image, price row pinned bottom
+  with `mt-auto`. Payment modal decluttered: neutral header (amber bg dropped,
+  Partner pill kept), prepaid/owing lines in neutral ink, owing notice brand-soft;
+  rose reserved for errors.
+- Invoices drawer: payments listed newest-first (server sends oldest-first),
+  meta/totals in sunken cards. Clients: filter Segmented gained `Owing (n)`.
+- Charts on validated tokens `--chart-1` (blue) / `--chart-2` (orange, logo
+  family) in globals.css, light+dark variants pass the dataviz CVD/contrast
+  validator. Both charts are shadcn-style gradient AreaCharts (reports was
+  bar+line; revenue/profit now overlap, not stacked, since profit ⊂ revenue).
+  `components/ui/chart.tsx` has the shadcn-look `ChartTooltipContent` /
+  `ChartLegendContent` + `ChartConfig` for Recharts on our surface tokens.
 
 ### Pending / decisions to revisit
 - Khmer i18n intentionally skipped in v1.

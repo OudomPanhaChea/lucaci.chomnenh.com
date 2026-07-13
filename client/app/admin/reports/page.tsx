@@ -1,15 +1,17 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Button, DatePicker, Segmented } from "antd";
+import { DatePicker, Segmented } from "antd";
+import { Button } from "@/components/ui/button";
 import dayjs, { Dayjs } from "dayjs";
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
   CartesianGrid, Legend,
 } from "recharts";
-import { DollarSign, ReceiptText, TrendingUp, Package, Download } from "lucide-react";
+import { DollarSign, ReceiptText, TrendingUp, Download, HandCoins } from "lucide-react";
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
 import { SectionHeader } from "@/components/ui/section-header";
+import { ChartTooltipContent, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { money } from "@/lib/format";
@@ -17,13 +19,20 @@ import { money } from "@/lib/format";
 const { RangePicker } = DatePicker;
 
 interface Summary {
-  totals: { invoice_count: number; revenue: number; tax: number; discount: number; profit: number; avg_sale: number; items_sold: number };
+  totals: { invoice_count: number; revenue: number; collected: number; outstanding: number; tax: number; discount: number; profit: number; avg_sale: number; items_sold: number };
   series: { period: string; invoice_count: number; revenue: number; profit: number }[];
   payment_methods: { payment_method: string; invoice_count: number; revenue: number }[];
   top_products: { name: string; quantity: number; revenue: number }[];
   top_clients: { name: string; invoice_count: number; revenue: number }[];
   group: string;
 }
+
+// Profit is always a subset of revenue, so the two areas overlap rather
+// than stack: the profit band reads inside the revenue band.
+const REPORT_CHART: ChartConfig = {
+  revenue: { label: "Revenue", color: "var(--chart-1)" },
+  profit: { label: "Profit", color: "var(--chart-2)" },
+};
 
 const PRESETS = [
   { label: "Today", value: [dayjs(), dayjs()] as [Dayjs, Dayjs] },
@@ -48,7 +57,7 @@ export default function ReportsPage() {
   }, [range, group]);
 
   useEffect(load, [load]);
-  useRealtime(["sale:created", "sale:voided"], load);
+  useRealtime(["sale:created", "sale:updated", "sale:voided"], load);
 
   const exportCsv = () => {
     if (!data) return;
@@ -95,33 +104,54 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Revenue" value={money(t?.revenue)} icon={DollarSign} accent="brand"
           hint={`Tax collected ${money(t?.tax)}`} />
-        <StatCard title="Profit" value={money(t?.profit)} icon={TrendingUp} accent="emerald"
+        <StatCard title="Collected" value={money(t?.collected)} icon={HandCoins} accent="emerald"
+          hint={
+            Number(t?.outstanding) > 0 ? (
+              <span className="text-rose-600 dark:text-rose-400">{money(t?.outstanding)} still owing</span>
+            ) : "All sales fully paid"
+          } />
+        <StatCard title="Profit" value={money(t?.profit)} icon={TrendingUp} accent="amber"
           hint={`Discounts given ${money(t?.discount)}`} />
-        <StatCard title="Invoices" value={t?.invoice_count ?? 0} icon={ReceiptText} accent="amber"
-          hint={`Average sale ${money(t?.avg_sale)}`} />
-        <StatCard title="Items sold" value={t?.items_sold ?? 0} icon={Package} accent="rose" />
+        <StatCard title="Invoices" value={t?.invoice_count ?? 0} icon={ReceiptText} accent="rose"
+          hint={`Average sale ${money(t?.avg_sale)}, ${t?.items_sold ?? 0} items`} />
       </div>
 
       <div className="mt-6 rounded-xl border border-line bg-surface-raised p-4 shadow-card">
         <h2 className="mb-3 font-medium text-fg">Revenue and profit</h2>
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data?.series ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-              <XAxis dataKey="period" tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} />
-              <YAxis tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} width={54}
+            <AreaChart data={data?.series ?? []} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="fillReportRevenue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.05} />
+                </linearGradient>
+                <linearGradient id="fillReportProfit" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--chart-2)" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="var(--chart-2)" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="var(--line)" />
+              <XAxis dataKey="period" tickLine={false} axisLine={false}
+                tick={{ fontSize: 11, fill: "var(--fg-subtle)" }} tickMargin={8} />
+              <YAxis tickLine={false} axisLine={false} width={54} tickMargin={4}
+                tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
                 tickFormatter={(v: number) => `$${v}`} />
               <Tooltip
-                formatter={(value, name) => [money(value as number), name === "revenue" ? "Revenue" : "Profit"]}
-                contentStyle={{
-                  background: "var(--surface-overlay)", border: "1px solid var(--line)",
-                  borderRadius: 8, color: "var(--fg)",
-                }}
+                cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
+                content={
+                  <ChartTooltipContent config={REPORT_CHART}
+                    valueFormatter={(v) => money(v)} />
+                }
               />
-              <Legend formatter={(v) => (v === "revenue" ? "Revenue" : "Profit")} />
-              <Bar dataKey="revenue" fill="#304a59" radius={[4, 4, 0, 0]} maxBarSize={48} />
-              <Line type="monotone" dataKey="profit" stroke="#10b981" strokeWidth={2} dot={false} />
-            </ComposedChart>
+              <Legend content={<ChartLegendContent config={REPORT_CHART} />} />
+              <Area type="monotone" dataKey="revenue" stroke="var(--chart-1)" strokeWidth={2}
+                fill="url(#fillReportRevenue)" dot={false}
+                activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--surface-raised)" }} />
+              <Area type="monotone" dataKey="profit" stroke="var(--chart-2)" strokeWidth={2}
+                fill="url(#fillReportProfit)" dot={false}
+                activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--surface-raised)" }} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>

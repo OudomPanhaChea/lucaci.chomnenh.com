@@ -4,9 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Layout, Dropdown } from "antd";
 import {
-  LayoutDashboard, ShoppingCart, Boxes, Users, ReceiptText, BarChart3,
-  UserCog, Settings, LogOut, UserRound, Menu as MenuIcon,
-  PanelLeftClose, PanelLeftOpen, ExternalLink, Wifi, WifiOff,
+  LayoutDashboard,
+  ShoppingCart,
+  Boxes,
+  Users,
+  ReceiptText,
+  BarChart3,
+  UserCog,
+  Settings,
+  LogOut,
+  UserRound,
+  Menu as MenuIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ExternalLink,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSocket } from "@/services/socket";
@@ -18,34 +31,85 @@ import type { Role, Settings as SettingsType } from "@/lib/types";
 const { Header, Content, Sider } = Layout;
 
 // Same flattened, categorized sidebar concept as WisePOS
-const NAV: { category: string; items: { key: string; label: string; href: string; icon: typeof LayoutDashboard; roles?: Role[] }[] }[] = [
+const NAV: {
+  category: string;
+  items: {
+    key: string;
+    label: string;
+    href: string;
+    icon: typeof LayoutDashboard;
+    roles?: Role[];
+  }[];
+}[] = [
   {
     category: "Overview",
-    items: [{ key: "dashboard", label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard }],
+    items: [
+      {
+        key: "dashboard",
+        label: "Dashboard",
+        href: "/admin/dashboard",
+        icon: LayoutDashboard,
+      },
+    ],
   },
   {
     category: "Sales",
     items: [
-      { key: "pos", label: "Sell (POS)", href: "/admin/pos", icon: ShoppingCart },
-      { key: "invoices", label: "Invoices", href: "/admin/invoices", icon: ReceiptText },
+      {
+        key: "pos",
+        label: "Sell (POS)",
+        href: "/admin/pos",
+        icon: ShoppingCart,
+      },
     ],
   },
   {
     category: "Catalog",
     items: [
-      { key: "inventory", label: "Inventory", href: "/admin/inventory", icon: Boxes },
+      {
+        key: "inventory",
+        label: "Inventory",
+        href: "/admin/inventory",
+        icon: Boxes,
+      },
       { key: "clients", label: "Clients", href: "/admin/clients", icon: Users },
     ],
   },
   {
     category: "Accounting",
-    items: [{ key: "reports", label: "Reports", href: "/admin/reports", icon: BarChart3, roles: ["owner", "admin"] }],
+    items: [
+      {
+        key: "reports",
+        label: "Reports",
+        href: "/admin/reports",
+        icon: BarChart3,
+        roles: ["owner", "admin"],
+      },
+      {
+        key: "invoices",
+        label: "Invoices",
+        href: "/admin/invoices",
+        icon: ReceiptText,
+      },
+    ],
   },
   {
     category: "System",
     items: [
-      { key: "staff", label: "Staff", href: "/admin/staff", icon: UserCog, roles: ["owner"] },
-      { key: "settings", label: "Settings", href: "/admin/settings", icon: Settings, roles: ["owner"] },
+      {
+        key: "staff",
+        label: "Staff",
+        href: "/admin/staff",
+        icon: UserCog,
+        roles: ["owner"],
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        href: "/admin/settings",
+        icon: Settings,
+        roles: ["owner"],
+      },
     ],
   },
 ];
@@ -79,13 +143,20 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const connected = useSocketConnected(user?.id);
 
   useEffect(() => {
-    api.get("/settings").then(({ data }) => setSettings(data)).catch(() => {});
+    api
+      .get("/settings")
+      .then(({ data }) => setSettings(data))
+      .catch(() => {});
   }, []);
-  useRealtime(["settings:changed"], (_e, payload) => setSettings(payload as SettingsType));
+  useRealtime(["settings:changed"], (_e, payload) =>
+    setSettings(payload as SettingsType),
+  );
 
   const nav = NAV.map((section) => ({
     ...section,
-    items: section.items.filter((i) => !i.roles || (user && i.roles.includes(user.role))),
+    items: section.items.filter(
+      (i) => !i.roles || (user && i.roles.includes(user.role)),
+    ),
   })).filter((s) => s.items.length > 0);
 
   const closeOnMobile = () => {
@@ -116,7 +187,14 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         className="!bg-surface-raised border-r border-line"
         style={
           broken
-            ? { position: "fixed", top: 0, bottom: 0, left: 0, height: "100dvh", zIndex: 50 }
+            ? {
+                position: "fixed",
+                top: 0,
+                bottom: 0,
+                left: 0,
+                height: "100dvh",
+                zIndex: 50,
+              }
             : { position: "sticky", top: 0, height: "100vh", zIndex: 40 }
         }
       >
@@ -128,13 +206,25 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           >
             {collapsed ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/images/chomnenh-mark.png" alt="Chomnenh" className="h-8 w-8 shrink-0 rounded-lg" />
+              <img
+                src="/images/chomnenh-mark.png"
+                alt="Chomnenh"
+                className="h-8 w-8 shrink-0 rounded-lg"
+              />
             ) : (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/images/Chomnenh-logo.png" alt="Chomnenh" className="h-7 w-auto dark:hidden" />
+                <img
+                  src="/images/Chomnenh-logo.png"
+                  alt="Chomnenh"
+                  className="h-7 w-auto dark:hidden"
+                />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/images/Chomnenh-logo-white.png" alt="Chomnenh" className="hidden h-7 w-auto dark:block" />
+                <img
+                  src="/images/Chomnenh-logo-white.png"
+                  alt="Chomnenh"
+                  className="hidden h-7 w-auto dark:block"
+                />
               </>
             )}
           </Link>
@@ -163,7 +253,9 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                       } ${collapsed ? "justify-center" : ""}`}
                     >
                       <Icon className="h-4.5 w-4.5 shrink-0" />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
+                      {!collapsed && (
+                        <span className="truncate">{item.label}</span>
+                      )}
                     </Link>
                   );
                 })}
@@ -233,11 +325,18 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             <div className="flex min-w-0 items-center gap-2">
               {settings?.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={settings.logo_url} alt={settings.business_name}
-                  className="h-7 w-7 shrink-0 rounded-md border border-line bg-white object-cover" />
+                <img
+                  src={settings.logo_url}
+                  alt={settings.business_name}
+                  className="h-7 w-7 shrink-0 rounded-md border border-line bg-white object-cover"
+                />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src="/images/chomnenh-mark.png" alt="" className="h-7 w-7 shrink-0 rounded-md" />
+                <img
+                  src="/images/chomnenh-mark.png"
+                  alt=""
+                  className="h-7 w-7 shrink-0 rounded-md"
+                />
               )}
               <span className="truncate text-sm font-semibold text-fg">
                 {settings?.business_name ?? ""}
@@ -245,17 +344,25 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             </div>
 
             <span
-              title={connected
-                ? "Live: connected to the server, this page updates in realtime"
-                : "Offline: no realtime connection, data may be stale until reload"}
+              title={
+                connected
+                  ? "Live: connected to the server, this page updates in realtime"
+                  : "Offline: no realtime connection, data may be stale until reload"
+              }
               className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
                 connected
                   ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
                   : "bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
               }`}
             >
-              {connected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{connected ? "Live" : "Offline"}</span>
+              {connected ? (
+                <Wifi className="h-3.5 w-3.5" />
+              ) : (
+                <WifiOff className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {connected ? "Live" : "Offline"}
+              </span>
             </span>
           </div>
 
@@ -270,7 +377,9 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                     label: (
                       <div className="py-1">
                         <p className="font-medium">{user?.name}</p>
-                        <p className="text-xs capitalize opacity-60">{user?.role}</p>
+                        <p className="text-xs capitalize opacity-60">
+                          {user?.role}
+                        </p>
                       </div>
                     ),
                     disabled: true,
@@ -297,14 +406,19 @@ export default function AdminShell({ children }: { children: ReactNode }) {
               >
                 {user?.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={user.avatar_url} alt={user.name}
-                    className="h-8 w-8 rounded-full border border-line object-cover" />
+                  <img
+                    src={user.avatar_url}
+                    alt={user.name}
+                    className="h-8 w-8 rounded-full border border-line object-cover"
+                  />
                 ) : (
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-sm font-semibold text-brand-foreground">
                     {user?.name?.charAt(0).toUpperCase()}
                   </span>
                 )}
-                <span className="hidden text-sm font-medium text-fg sm:block">{user?.name}</span>
+                <span className="hidden text-sm font-medium text-fg sm:block">
+                  {user?.name}
+                </span>
               </button>
             </Dropdown>
           </div>

@@ -26,6 +26,8 @@ export async function listClients(req, res) {
   res.json(rows);
 }
 
+const clientType = (v) => (v === "partner" ? "partner" : "normal");
+
 export async function createClient(req, res) {
   const b = req.body || {};
   if (!b.name?.trim()) return res.status(400).json({ message: "Client name is required" });
@@ -34,10 +36,10 @@ export async function createClient(req, res) {
     [BUSINESS_ID]
   );
   const [result] = await pool.query(
-    `INSERT INTO clients (business_id, display_number, name, phone, email, sex, id_card, address, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO clients (business_id, display_number, name, phone, email, sex, client_type, id_card, address, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [BUSINESS_ID, next, b.name.trim(), b.phone || null, b.email || null, b.sex || null,
-     b.id_card || null, b.address || null, b.note || null]
+     clientType(b.client_type), b.id_card || null, b.address || null, b.note || null]
   );
   emitToAdmins("client:changed", { type: "create", id: result.insertId });
   res.status(201).json({ id: result.insertId, display_number: next });
@@ -47,9 +49,9 @@ export async function updateClient(req, res) {
   const b = req.body || {};
   if (!b.name?.trim()) return res.status(400).json({ message: "Client name is required" });
   await pool.query(
-    `UPDATE clients SET name=?, phone=?, email=?, sex=?, id_card=?, address=?, note=?
+    `UPDATE clients SET name=?, phone=?, email=?, sex=?, client_type=?, id_card=?, address=?, note=?
      WHERE id = ? AND business_id = ?`,
-    [b.name.trim(), b.phone || null, b.email || null, b.sex || null,
+    [b.name.trim(), b.phone || null, b.email || null, b.sex || null, clientType(b.client_type),
      b.id_card || null, b.address || null, b.note || null, req.params.id, BUSINESS_ID]
   );
   emitToAdmins("client:changed", { type: "update", id: Number(req.params.id) });
@@ -81,7 +83,7 @@ export async function clientStatement(req, res) {
 
   const [sales] = await pool.query(
     `SELECT id, invoice_number, total, amount_paid, payment_method, status, created_at,
-            (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = sales.id) AS item_count
+            (SELECT SUM(quantity * unit_factor) FROM sale_items si WHERE si.sale_id = sales.id) AS item_count
      FROM sales WHERE client_id = ? AND business_id = ?${rangeSql}
      ORDER BY id DESC LIMIT 200`,
     [id, BUSINESS_ID, ...rangeParams]

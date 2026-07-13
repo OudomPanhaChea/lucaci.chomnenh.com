@@ -1,7 +1,7 @@
 import pool from "../config/db.js";
 import { BUSINESS_ID } from "../config/business.js";
 import { emitToAdmins } from "../config/socket.js";
-import { deleteUploadedFile } from "../middleware/upload.js";
+import { deleteUploadedFile, storeUploadedImage } from "../middleware/upload.js";
 
 export const MAX_BANNERS = 4;
 
@@ -44,7 +44,7 @@ export async function updateSettings(req, res) {
 export async function uploadLogo(req, res) {
   if (!req.file) return res.status(400).json({ message: "No image uploaded" });
   const current = await loadSettings();
-  const logoUrl = `/uploads/branding/${req.file.filename}`;
+  const logoUrl = await storeUploadedImage(req.file);
   await pool.query("UPDATE settings SET logo_url = ? WHERE business_id = ?", [logoUrl, BUSINESS_ID]);
   deleteUploadedFile(current?.logo_url);
   await respondAndBroadcast(res);
@@ -60,7 +60,7 @@ export async function removeLogo(_req, res) {
 export async function addBanner(req, res) {
   if (!req.file) return res.status(400).json({ message: "No image uploaded" });
   const current = await loadSettings();
-  const bannerUrl = `/uploads/branding/${req.file.filename}`;
+  const bannerUrl = await storeUploadedImage(req.file);
   if (current.banners.length >= MAX_BANNERS) {
     deleteUploadedFile(bannerUrl);
     return res.status(400).json({ message: `Maximum ${MAX_BANNERS} banner images` });

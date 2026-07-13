@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  Button, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Select, Switch,
-  Table, Upload, Tag,
+  Drawer, Form, Input, InputNumber, Modal, Popconfirm, Segmented,
+  Select, Switch, Table, Upload, Tag,
 } from "antd";
 import type { UploadFile } from "antd";
+import { Button } from "@/components/ui/button";
 import { toast } from "react-toastify";
 import {
   Plus, ScanBarcode, Pencil, Trash2, Boxes, PackageOpen, Layers, History,
@@ -62,7 +63,7 @@ function InventoryPage() {
     return products.filter(
       (p) =>
         (!categoryId || p.category_id === categoryId) &&
-        (!lowOnly || p.stock_qty <= p.low_stock_alert) &&
+        (!lowOnly || (p.stock_qty !== null && p.stock_qty <= p.low_stock_alert)) &&
         (!q || p.name.toLowerCase().includes(q) || p.barcode?.includes(q) || p.sku?.toLowerCase().includes(q))
     );
   }, [products, search, categoryId, lowOnly]);
@@ -71,7 +72,10 @@ function InventoryPage() {
     setEditing(null);
     setFileList([]);
     form.resetFields();
-    form.setFieldsValue({ show_in_menu: true, is_active: true, low_stock_alert: 5, stock_qty: 0, discount_pct: 0 });
+    form.setFieldsValue({
+      show_in_menu: true, is_active: true, low_stock_alert: 5,
+      stock_qty: 0, discount_pct: 0, track_stock: true, units: [],
+    });
     setFormOpen(true);
   };
 
@@ -83,6 +87,11 @@ function InventoryPage() {
       show_in_menu: !!p.show_in_menu,
       is_active: !!p.is_active,
       category_id: p.category_id ?? undefined,
+      track_stock: p.stock_qty !== null,
+      stock_qty: p.stock_qty ?? 0,
+      units: (p.units ?? []).map((u) => ({
+        name: u.name, factor: u.factor, sell_price: u.sell_price, barcode: u.barcode ?? undefined,
+      })),
     });
     setFormOpen(true);
   };
@@ -91,11 +100,13 @@ function InventoryPage() {
     const values = await form.validateFields();
     setSaving(true);
     const fd = new FormData();
-    Object.entries(values).forEach(([k, v]) => {
+    const { units, ...fields } = values;
+    Object.entries(fields).forEach(([k, v]) => {
       if (v === undefined || v === null) return;
       if (typeof v === "boolean") fd.append(k, v ? "1" : "0");
       else fd.append(k, String(v));
     });
+    fd.append("units", JSON.stringify(units ?? []));
     const newFile = fileList.find((f) => f.originFileObj);
     if (newFile?.originFileObj) fd.append("image", newFile.originFileObj);
     if (editing && editing.image_url && fileList.length === 0) fd.append("remove_image", "1");
@@ -246,12 +257,28 @@ function InventoryPage() {
               ),
             },
             {
-              title: "Stock", dataIndex: "stock_qty", width: 110, align: "center",
-              sorter: (a, b) => a.stock_qty - b.stock_qty,
-              render: (_, p) =>
-                p.stock_qty <= 0 ? <StatusBadge status="out" label="Out" />
-                : p.stock_qty <= p.low_stock_alert ? <StatusBadge status="low" label={`${p.stock_qty} low`} />
-                : <span className="tabular">{p.stock_qty}</span>,
+              title: "Stock", dataIndex: "stock_qty", width: 130, align: "center",
+              sorter: (a, b) =>
+                (a.stock_qty ?? Number.MAX_SAFE_INTEGER) - (b.stock_qty ?? Number.MAX_SAFE_INTEGER),
+              render: (_, p) => {
+                if (p.stock_qty === null) return <span className="text-xs text-fg-subtle">Not tracked</span>;
+                if (p.stock_qty <= 0) return <StatusBadge status="out" label="Out" />;
+                if (p.stock_qty <= p.low_stock_alert) return <StatusBadge status="low" label={`${p.stock_qty} low`} />;
+                // Show the biggest bulk unit the count fits into, e.g. "48 pcs" + "4 × Box of 12"
+                const unit = [...(p.units ?? [])]
+                  .filter((u) => u.factor > 1 && p.stock_qty! >= u.factor)
+                  .sort((a, b) => b.factor - a.factor)[0];
+                return (
+                  <div className="tabular">
+                    {p.stock_qty}
+                    {unit && (
+                      <p className="text-xs text-fg-subtle">
+                        {Math.floor(p.stock_qty / unit.factor)} × {unit.name}
+                      </p>
+                    )}
+                  </div>
+                );
+              },
             },
             {
               title: "Status", width: 120,
@@ -269,7 +296,9 @@ function InventoryPage() {
                     <div className="flex justify-end gap-1">
                       <Button size="small" type="text" icon={<History className="h-4 w-4" />} title="Stock history"
                         onClick={() => openHistory(p)} />
-                      <Button size="small" type="text" icon={<Boxes className="h-4 w-4" />} title="Adjust stock"
+                      <Button size="small" type="text" icon={<Boxes className="h-4 w-4" />}
+                        title={p.stock_qty === null ? "This product does not track stock" : "Adjust stock"}
+                        disabled={p.stock_qty === null}
                         onClick={() => { setStockProduct(p); stockForm.setFieldsValue({ direction: "in", qty: 1 }); }} />
                       <Button size="small" type="text" icon={<Pencil className="h-4 w-4" />} title="Edit"
                         onClick={() => openEdit(p)} />
@@ -293,10 +322,13 @@ function InventoryPage() {
         onOk={submit}
         okText={editing ? "Save changes" : "Create product"}
         confirmLoading={saving}
-        width={620}
+        width={640}
+        centered
+        styles={{ body: { maxHeight: "70vh", overflowY: "auto", overflowX: "hidden", paddingRight: 8 } }}
         destroyOnHidden={false}
       >
-        <Form form={form} layout="vertical" requiredMark={false} className="pt-2">
+        <Form form={form} layout="vertical" requiredMark={false} className="pt-1">
+          <FormSection title="Details" first />
           <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
             <Form.Item label="Name" name="name" rules={[{ required: true, message: "Product name is required" }]}
               className="sm:col-span-2">
@@ -320,6 +352,13 @@ function InventoryPage() {
               <Select allowClear placeholder="Select category"
                 options={categories.map((c) => ({ value: c.id, label: c.name }))} />
             </Form.Item>
+            <Form.Item label="Description" name="description" className="sm:col-span-2">
+              <Input.TextArea rows={2} placeholder="Shown on the public menu (optional)" />
+            </Form.Item>
+          </div>
+
+          <FormSection title="Pricing" />
+          <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-3">
             <Form.Item label="Sell price ($)" name="sell_price" rules={[{ required: true, message: "Required" }]}>
               <InputNumber min={0} step={0.25} className="!w-full" />
             </Form.Item>
@@ -329,18 +368,87 @@ function InventoryPage() {
             <Form.Item label="Discount %" name="discount_pct">
               <InputNumber min={0} max={100} className="!w-full" />
             </Form.Item>
-            {!editing && (
-              <Form.Item label="Initial stock" name="stock_qty">
-                <InputNumber min={0} className="!w-full" />
-              </Form.Item>
-            )}
-            <Form.Item label="Low stock alert at" name="low_stock_alert">
-              <InputNumber min={0} className="!w-full" />
-            </Form.Item>
-            <Form.Item label="Description" name="description" className="sm:col-span-2">
-              <Input.TextArea rows={2} placeholder="Shown on the public menu (optional)" />
+          </div>
+
+          <FormSection title="Stock" />
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-line px-3 py-2.5">
+            <div>
+              <p className="text-sm font-medium text-fg">Track stock</p>
+              <p className="text-xs text-fg-subtle">
+                Off: the product never runs out and skips low-stock alerts
+              </p>
+            </div>
+            <Form.Item name="track_stock" valuePropName="checked" className="!mb-0">
+              <Switch />
             </Form.Item>
           </div>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.track_stock !== b.track_stock}>
+            {({ getFieldValue }) =>
+              getFieldValue("track_stock") ? (
+                <div className="mt-3 grid grid-cols-2 gap-x-4">
+                  {(!editing || editing.stock_qty === null) && (
+                    <Form.Item label={editing ? "Starting stock" : "Initial stock"} name="stock_qty">
+                      <InputNumber min={0} className="!w-full" />
+                    </Form.Item>
+                  )}
+                  <Form.Item label="Low stock alert at" name="low_stock_alert">
+                    <InputNumber min={0} className="!w-full" />
+                  </Form.Item>
+                </div>
+              ) : null
+            }
+          </Form.Item>
+
+          {/* Bulk units for partner/wholesale sales: own price + carton barcode,
+              stock still counted in pieces */}
+          <FormSection title="Bulk units (wholesale)"
+            hint="Sell by the box or case at its own price. Stock is still counted in pieces." />
+          <Form.List name="units">
+            {(fields, { add, remove: removeRow }) => (
+              <div className="space-y-2">
+                {fields.length > 0 && (
+                  <div className="grid grid-cols-[minmax(0,1fr)_84px_96px_minmax(0,1fr)_28px] gap-2 text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+                    <span>Unit name</span>
+                    <span>Pieces</span>
+                    <span>Price</span>
+                    <span>Carton barcode</span>
+                    <span />
+                  </div>
+                )}
+                {fields.map((field) => (
+                  <div key={field.key} className="grid grid-cols-[minmax(0,1fr)_84px_96px_minmax(0,1fr)_28px] items-start gap-2">
+                    <Form.Item name={[field.name, "name"]} className="!mb-0"
+                      rules={[{ required: true, message: "Name" }]}>
+                      <Input placeholder="Box of 12" />
+                    </Form.Item>
+                    <Form.Item name={[field.name, "factor"]} className="!mb-0"
+                      rules={[{ required: true, message: "Pcs" }]}>
+                      <InputNumber min={1} precision={0} placeholder="Pcs" className="!w-full" title="Pieces per unit" />
+                    </Form.Item>
+                    <Form.Item name={[field.name, "sell_price"]} className="!mb-0"
+                      rules={[{ required: true, message: "Price" }]}>
+                      <InputNumber min={0} step={0.25} prefix="$" placeholder="Price" className="!w-full" />
+                    </Form.Item>
+                    <Form.Item name={[field.name, "barcode"]} className="!mb-0">
+                      <Input placeholder="Optional" />
+                    </Form.Item>
+                    <Button type="text" danger icon={<Trash2 className="h-4 w-4" />}
+                      onClick={() => removeRow(field.name)} aria-label="Remove unit" />
+                  </div>
+                ))}
+                {fields.length === 0 && (
+                  <p className="text-xs text-fg-subtle">
+                    No bulk units. Add one to sell this product by the box or case at its own price.
+                  </p>
+                )}
+                <Button size="small" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => add({ factor: 1 })}>
+                  Add unit
+                </Button>
+              </div>
+            )}
+          </Form.List>
+
+          <FormSection title="Image and visibility" />
           <div className="flex flex-wrap items-center gap-6">
             <Upload
               listType="picture-card"
@@ -392,20 +500,40 @@ function InventoryPage() {
       </Drawer>
 
       {/* ── Stock adjust ── */}
-      <Modal open={!!stockProduct} onCancel={() => setStockProduct(null)}
+      <Modal open={!!stockProduct} onCancel={() => setStockProduct(null)} centered width={420}
         title={`Adjust stock: ${stockProduct?.name ?? ""}`} onOk={adjustStock} okText="Apply">
-        <Form form={stockForm} layout="vertical" requiredMark={false} className="pt-2">
-          <Form.Item label="Direction" name="direction">
-            <Select options={[
+        <div className="mb-4 mt-2 rounded-lg bg-surface-sunken p-3 text-center">
+          <p className="text-xs text-fg-subtle">Current stock</p>
+          <p className="tabular text-2xl font-semibold text-fg">{stockProduct?.stock_qty ?? 0} pcs</p>
+        </div>
+        <Form form={stockForm} layout="vertical" requiredMark={false}>
+          <Form.Item name="direction">
+            <Segmented block options={[
               { value: "in", label: "Stock in (restock)" },
-              { value: "out", label: "Stock out (damage, correction)" },
+              { value: "out", label: "Stock out (damage)" },
             ]} />
           </Form.Item>
           <Form.Item label="Quantity" name="qty" rules={[{ required: true, message: "Quantity required" }]}>
-            <InputNumber min={1} className="!w-full" />
+            <InputNumber min={1} className="!w-full" autoFocus />
           </Form.Item>
-          <Form.Item label="Note" name="note">
+          <Form.Item label="Note" name="note" className="!mb-2">
             <Input placeholder="Reason (optional)" />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate>
+            {({ getFieldValue }) => {
+              const qty = Number(getFieldValue("qty")) || 0;
+              if (!stockProduct || qty <= 0) return null;
+              const next = (stockProduct.stock_qty ?? 0) + (getFieldValue("direction") === "in" ? qty : -qty);
+              return next < 0 ? (
+                <p className="text-sm text-rose-600 dark:text-rose-400">
+                  This would take stock below zero.
+                </p>
+              ) : (
+                <p className="text-sm text-fg-muted">
+                  After applying: <span className="tabular font-medium text-fg">{next} pcs</span>
+                </p>
+              );
+            }}
           </Form.Item>
         </Form>
       </Modal>
@@ -434,6 +562,16 @@ function InventoryPage() {
           ))}
         </ul>
       </Drawer>
+    </div>
+  );
+}
+
+// Labeled divider that splits the long product form into scannable groups
+function FormSection({ title, hint, first }: { title: string; hint?: string; first?: boolean }) {
+  return (
+    <div className={`mb-3 border-b border-line pb-1.5 ${first ? "" : "mt-5"}`}>
+      <p className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{title}</p>
+      {hint && <p className="mt-0.5 text-xs normal-case tracking-normal text-fg-subtle">{hint}</p>}
     </div>
   );
 }

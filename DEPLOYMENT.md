@@ -1,45 +1,35 @@
-# Deploying Chamnenh to lucaci.chamnenh.com
+# Deploying Chamnenh to lucaci.chamnenh.com (VPS fallback plan)
 
-## The important thing about your Hostinger Business plan
+> **2026-07-10 update: this is now the FALLBACK plan.** Hostinger Business added
+> Node.js app hosting (up to 5 apps), so the primary plan is deploying both apps
+> directly on the company's existing shared plan, no VPS. See
+> **DEPLOYMENT-HOSTINGER.md** for those steps. Use this document only if the
+> shared plan proves too limited (see its Step 0 proof of concept).
 
-The Hostinger **Business** plan is *shared web hosting*: it runs PHP + MySQL websites.
-It **cannot run this app**, because Chamnenh needs two long-running Node.js processes
-(Next.js and the Express + Socket.IO API), and shared hosting does not allow persistent
-Node processes or WebSockets.
+## The VPS plan
 
-So the plan for `lucaci.chamnenh.com`:
+Chamnenh needs two long-running Node.js processes (Next.js and the Express +
+Socket.IO API). On a VPS the layout is:
 
 | What | Where |
 |---|---|
 | Domain + DNS (`chamnenh.com`) | Keep at Hostinger (works fine) |
 | The app (Next.js + Express + MySQL) | A VPS: the same Coolify/Hetzner server WisePOS uses, or a Hostinger VPS (KVM 1 is enough, ~$5/mo) |
-| Product images | The VPS disk at `server/uploads/` (already implemented), see below |
+| Product images | In the MySQL database (`images` table), see below |
 
 In Hostinger's DNS panel, add an **A record**: `lucaci` → your VPS IP. That's all
 Hostinger needs to do.
 
-## Image storage: the recommendation
+## Image storage
 
-**Use the built-in local disk storage (already implemented).** When a user adds a product
-photo, the server saves it to `server/uploads/products/<uuid>.jpg` and serves it at
-`https://lucaci.chamnenh.com/uploads/products/<uuid>.jpg` with 30-day browser caching.
+Uploaded images (products, avatars, logo, banners) are stored **in the database**
+(`images` table, decided 2026-07-10 so they survive managed redeploys on Hostinger)
+and served at `/uploads/img/:id` with 30-day browser caching. Files under
+`server/uploads/` are only a legacy fallback for images uploaded before that change.
 
-Why this is right for Chamnenh:
-- Single business, one server: no need for a CDN or object storage.
-- Zero cost, zero extra accounts, images live next to the database.
-- A 3MB limit is enforced per image; a few thousand product photos ≈ 1–2 GB, trivial for any VPS.
-
-**Backup rule:** back up two things together — the MySQL database and the `server/uploads/`
-folder. A nightly `mysqldump` + a copy of `uploads/` (rsync, or a zip to Google Drive) is a
-complete backup of the business.
-
-**Alternative (if you ever outgrow the VPS disk or want a CDN):** Cloudinary free tier,
-which WisePOS's server already uses (`cloudinary` + `multer-storage-cloudinary`). Swap
-`server/middleware/upload.js` for a Cloudinary storage engine and store the returned URL
-in `products.image_url` — nothing else changes, because the app only ever stores a URL.
-
-**Not recommended:** storing app-uploaded images on the Hostinger shared plan. There is no
-clean upload API (only FTP/hPanel), so the POS could not save images there automatically.
+**Backup rule:** a nightly `mysqldump` is a complete backup of the business,
+images included. Make sure the MySQL server's `max_allowed_packet` is at least
+16MB (uploads are capped at 5MB per image).
 
 ## VPS setup (nginx + PM2)
 
@@ -94,7 +84,7 @@ scanner only works on HTTPS or localhost), and you're live.
 
 If you deploy on the existing **Coolify** server instead, create one app for `server/`
 (port 5001) and one for `client/` (port 3000) and attach the same domain with the path
-rules above; put `server/uploads` on a persistent volume so images survive redeploys.
+rules above; images live in the DB, so no persistent volume is needed.
 
 ## Production checklist
 
@@ -102,5 +92,5 @@ rules above; put `server/uploads` on a persistent volume so images survive redep
 - [ ] `NODE_ENV=production` (makes the auth cookie `Secure`)
 - [ ] Changed the seeded owner password after first login
 - [ ] HTTPS active (camera scanning needs it)
-- [ ] Nightly backup of MySQL + `server/uploads/`
+- [ ] Nightly backup of MySQL (includes the images)
 - [ ] DNS A record `lucaci.chamnenh.com` → VPS IP at Hostinger

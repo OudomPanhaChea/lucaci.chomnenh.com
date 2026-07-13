@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Button, Form, Input, Popconfirm, Upload } from "antd";
+import { Form, Input, Popconfirm, Upload } from "antd";
+import { Button } from "@/components/ui/button";
 import ImgCrop from "antd-img-crop";
 import { toast } from "react-toastify";
 import { Mail, Phone, CalendarDays, Clock, KeyRound, UserRound, Camera } from "lucide-react";

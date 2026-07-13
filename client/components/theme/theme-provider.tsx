@@ -24,6 +24,15 @@ function AntdThemeBridge({ children }: { children: ReactNode }) {
           borderRadius: 8,
           fontFamily: "var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif",
         },
+        components: {
+          // Taller buttons app-wide (incl. Modal/Popconfirm footers) for
+          // comfortable touch targets; inputs keep the default heights.
+          Button: {
+            controlHeight: 38,
+            controlHeightLG: 44,
+            controlHeightSM: 28,
+          },
+        },
       }}
     >
       <App>{children}</App>

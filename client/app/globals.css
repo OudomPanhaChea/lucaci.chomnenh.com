@@ -50,6 +50,10 @@
   --brand-soft-foreground: #26404e;
   --ink: #142332;
   --ink-foreground: #eef4f8;
+  /* Chart series (CVD-validated against the surface): 1 = revenue blue,
+     2 = profit orange (the logo accent family) */
+  --chart-1: #1273b8;
+  --chart-2: #c96a1b;
 }
 
 .dark {
@@ -69,6 +73,8 @@
   --brand-soft-foreground: #a8c3d4;
   --ink: #0e1a27;
   --ink-foreground: #eef4f8;
+  --chart-1: #3e93cf;
+  --chart-2: #c97a22;
 }
 
 html,
@@ -124,6 +130,70 @@ body {
     width: 100%;
   }
   .Toastify__toast { margin-bottom: 8px; }
+}
+
+/* ── Slim scrollbars ──────────────────────────────────────────────────────
+   Thin, token-colored thumbs everywhere (page, tables, cart, drawers).
+   scrollbar-width covers Firefox + new Chromium; the ::-webkit rules cover
+   Safari and older Chromium. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-subtle);
+}
+
+/* ── Date pickers on small screens ────────────────────────────────────────
+   AntD's RangePicker opens two month panels side by side, which overflows
+   phones. Below 640px: presets become a chip row on top and the second
+   panel is hidden so the range is picked in one column (the hidden panel's
+   nav arrows are re-enabled on the remaining one). */
+@media (max-width: 640px) {
+  .ant-picker-dropdown .ant-picker-panel-layout {
+    flex-direction: column;
+  }
+  .ant-picker-dropdown .ant-picker-presets {
+    width: 100%;
+    max-width: none;
+    min-height: auto;
+  }
+  .ant-picker-dropdown .ant-picker-presets ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px;
+    border-inline-end: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .ant-picker-dropdown .ant-picker-presets ul li {
+    margin: 0 !important;
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9999px;
+    font-size: 12px;
+  }
+  .ant-picker-dropdown .ant-picker-panels {
+    flex-wrap: nowrap;
+  }
+  .ant-picker-dropdown .ant-picker-panels > *:nth-child(2) {
+    display: none;
+  }
+  .ant-picker-dropdown .ant-picker-panels > *:first-child .ant-picker-header-next-btn,
+  .ant-picker-dropdown .ant-picker-panels > *:first-child .ant-picker-header-super-next-btn {
+    visibility: visible !important;
+  }
 }
 
 /* Receipt print: only the receipt area prints */

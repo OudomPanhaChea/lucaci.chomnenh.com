@@ -1,23 +1,18 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Button, DatePicker, Drawer, Input, Popconfirm, Select, Table } from "antd";
+import { DatePicker, Input, Select, Table } from "antd";
 import dayjs, { Dayjs } from "dayjs";
-import { toast } from "react-toastify";
-import { Printer, Ban, ReceiptText } from "lucide-react";
-import api, { apiError } from "@/services/api";
+import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
-import { useAuth } from "@/hooks/useAuth";
 import { SectionHeader } from "@/components/ui/section-header";
 import { StatusBadge } from "@/components/ui/status-badge";
-import Receipt from "@/components/receipt";
+import InvoiceDetailModal from "@/components/invoice-detail-modal";
 import { money, fmtDate } from "@/lib/format";
-import type { Sale, Settings } from "@/lib/types";
+import type { Sale } from "@/lib/types";
 
 const { RangePicker } = DatePicker;
 
 export default function InvoicesPage() {
-  const { user } = useAuth();
-  const canVoid = user?.role === "owner" || user?.role === "admin";
   const [rows, setRows] = useState<Sale[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -26,8 +21,7 @@ export default function InvoicesPage() {
   const [status, setStatus] = useState<string | undefined>();
   const [method, setMethod] = useState<string | undefined>();
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
-  const [detail, setDetail] = useState<Sale | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -50,30 +44,7 @@ export default function InvoicesPage() {
   }, [page, search, status, method, range]);
 
   useEffect(load, [load]);
-  useEffect(() => {
-    api.get("/settings").then(({ data }) => setSettings(data)).catch(() => {});
-  }, []);
-  useRealtime(["sale:created", "sale:voided"], load);
-
-  const openDetail = async (sale: Sale) => {
-    try {
-      const { data } = await api.get(`/sales/${sale.id}`);
-      setDetail(data);
-    } catch (err) {
-      toast.error(apiError(err));
-    }
-  };
-
-  const voidSale = async (sale: Sale) => {
-    try {
-      const { data } = await api.post(`/sales/${sale.id}/void`);
-      toast.success(`${sale.invoice_number} voided, stock restored`);
-      setDetail((d) => (d?.id === sale.id ? data : d));
-      load();
-    } catch (err) {
-      toast.error(apiError(err));
-    }
-  };
+  useRealtime(["sale:created", "sale:updated", "sale:voided"], load);
 
   return (
     <div>
@@ -90,7 +61,12 @@ export default function InvoicesPage() {
           ]} />
         <Select allowClear placeholder="Status" className="!w-32" value={status}
           onChange={(v) => { setPage(1); setStatus(v); }}
-          options={[{ value: "paid", label: "Paid" }, { value: "voided", label: "Voided" }]} />
+          options={[
+            { value: "paid", label: "Paid" },
+            { value: "partial", label: "Partial" },
+            { value: "unpaid", label: "Unpaid" },
+            { value: "voided", label: "Voided" },
+          ]} />
         <Select allowClear placeholder="Payment" className="!w-32" value={method}
           onChange={(v) => { setPage(1); setMethod(v); }}
           options={["cash", "khqr", "card", "bank"].map((m) => ({ value: m, label: m.toUpperCase() }))} />
@@ -101,12 +77,12 @@ export default function InvoicesPage() {
           rowKey="id"
           loading={loading}
           dataSource={rows}
-          scroll={{ x: 860 }}
+          scroll={{ x: 960 }}
           pagination={{
             current: page, total, pageSize: 15, showSizeChanger: false,
             onChange: setPage,
           }}
-          onRow={(s) => ({ onClick: () => openDetail(s), className: "cursor-pointer" })}
+          onRow={(s) => ({ onClick: () => setDetailId(s.id), className: "cursor-pointer" })}
           columns={[
             { title: "Invoice", dataIndex: "invoice_number", width: 170,
               render: (v) => <span className="font-mono text-xs text-fg">{v}</span> },
@@ -121,103 +97,18 @@ export default function InvoicesPage() {
             { title: "Status", dataIndex: "status", width: 100, render: (v) => <StatusBadge status={v} /> },
             { title: "Total", dataIndex: "total", width: 110, align: "right",
               render: (v) => <span className="tabular font-medium">{money(v)}</span> },
+            { title: "Balance", key: "balance", width: 100, align: "right",
+              render: (_, s) => {
+                const bal = Number(s.total) - Number(s.amount_paid);
+                return s.status !== "voided" && bal > 0
+                  ? <span className="tabular font-medium text-rose-600 dark:text-rose-400">{money(bal)}</span>
+                  : <span className="text-fg-subtle">—</span>;
+              } },
           ]}
         />
       </div>
 
-      <Drawer open={!!detail} onClose={() => setDetail(null)} size={480}
-        title={
-          detail && (
-            <div className="flex items-center gap-2">
-              <ReceiptText className="h-4.5 w-4.5" />
-              <span className="font-mono text-sm">{detail.invoice_number}</span>
-              <StatusBadge status={detail.status} />
-            </div>
-          )
-        }
-        extra={
-          detail && (
-            <div className="flex gap-2">
-              <Button size="small" icon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>
-                Print
-              </Button>
-              {canVoid && detail.status === "paid" && (
-                <Popconfirm title="Void this invoice?" description="Stock will be restored. This cannot be undone."
-                  onConfirm={() => voidSale(detail)}>
-                  <Button size="small" danger icon={<Ban className="h-4 w-4" />}>Void</Button>
-                </Popconfirm>
-              )}
-            </div>
-          )
-        }>
-        {detail && (
-          <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-2 gap-3 rounded-lg bg-surface-sunken p-3">
-              <div><p className="text-fg-subtle">Date</p><p className="text-fg">{fmtDate(detail.created_at)}</p></div>
-              <div><p className="text-fg-subtle">Cashier</p><p className="text-fg">{detail.cashier_name}</p></div>
-              <div><p className="text-fg-subtle">Client</p><p className="text-fg">{detail.client_name || "Walk-in"}</p></div>
-              <div><p className="text-fg-subtle">Payment</p><p className="uppercase text-fg">{detail.payment_method}</p></div>
-              {detail.status === "voided" && (
-                <div className="col-span-2">
-                  <p className="text-fg-subtle">Voided</p>
-                  <p className="text-fg">{fmtDate(detail.voided_at ?? "")} by {detail.voided_by}</p>
-                </div>
-              )}
-            </div>
-
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-line text-left text-xs uppercase text-fg-subtle">
-                  <th className="pb-2 font-medium">Item</th>
-                  <th className="pb-2 text-center font-medium">Qty</th>
-                  <th className="pb-2 text-right font-medium">Price</th>
-                  <th className="pb-2 text-right font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {detail.items?.map((it) => (
-                  <tr key={it.id}>
-                    <td className="py-2 text-fg">{it.name_snapshot}
-                      {it.discount_pct > 0 && <span className="ml-1 text-xs text-rose-500">-{it.discount_pct}%</span>}
-                    </td>
-                    <td className="tabular py-2 text-center text-fg-muted">{it.quantity}</td>
-                    <td className="tabular py-2 text-right text-fg-muted">{money(it.price)}</td>
-                    <td className="tabular py-2 text-right font-medium text-fg">{money(it.line_total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div className="space-y-1 border-t border-line pt-3">
-              <div className="flex justify-between text-fg-muted"><span>Subtotal</span><span className="tabular">{money(detail.subtotal)}</span></div>
-              {Number(detail.discount_amount) > 0 && (
-                <div className="flex justify-between text-fg-muted">
-                  <span>Discount ({detail.discount_pct}%)</span><span className="tabular">-{money(detail.discount_amount)}</span>
-                </div>
-              )}
-              {Number(detail.tax_amount) > 0 && (
-                <div className="flex justify-between text-fg-muted">
-                  <span>Tax ({detail.tax_rate}%)</span><span className="tabular">{money(detail.tax_amount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-base font-semibold text-fg">
-                <span>Total</span><span className="tabular">{money(detail.total)}</span>
-              </div>
-              {detail.amount_received !== null && (
-                <>
-                  <div className="flex justify-between text-fg-muted"><span>Received</span><span className="tabular">{money(detail.amount_received)}</span></div>
-                  <div className="flex justify-between text-fg-muted"><span>Change</span><span className="tabular">{money(detail.change_due)}</span></div>
-                </>
-              )}
-            </div>
-            {detail.note && <p className="rounded-lg bg-surface-sunken p-3 text-fg-muted">{detail.note}</p>}
-          </div>
-        )}
-      </Drawer>
-
-      <div className="hidden print:block">
-        {detail && <Receipt sale={detail} settings={settings} />}
-      </div>
+      <InvoiceDetailModal saleId={detailId} onClose={() => setDetailId(null)} onChanged={load} />
     </div>
   );
 }

@@ -50,7 +50,8 @@ router.post("/products/:id/adjust-stock", manager, products.adjustStock);
 router.delete("/products/:id", manager, products.deleteProduct);
 
 router.get("/clients", clients.listClients);
-router.get("/clients/:id/purchases", clients.clientPurchases);
+router.get("/clients/:id/statement", clients.clientStatement);
+router.post("/clients/:id/deposits", clients.addDeposit);
 router.post("/clients", clients.createClient);
 router.put("/clients/:id", clients.updateClient);
 router.delete("/clients/:id", manager, clients.deleteClient);
@@ -58,6 +59,7 @@ router.delete("/clients/:id", manager, clients.deleteClient);
 router.post("/sales", sales.createSale);
 router.get("/sales", sales.listSales);
 router.get("/sales/:id", sales.getSale);
+router.post("/sales/:id/payments", sales.receivePayment);
 router.post("/sales/:id/void", manager, sales.voidSale);
 
 router.get("/reports/summary", manager, reports.summary);

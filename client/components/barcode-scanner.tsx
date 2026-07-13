@@ -121,7 +121,7 @@ export default function BarcodeScanner({
   continuous?: boolean; // keep scanning (POS cart mode) vs close on first hit
 }) {
   return (
-    <Modal open={open} onCancel={onClose} footer={null} title="Scan barcode" destroyOnHidden width={420}>
+    <Modal open={open} onCancel={onClose} footer={null} title="Scan barcode" destroyOnHidden width={420} centered>
       {open && <CameraRegion onScan={onScan} onClose={onClose} continuous={continuous} />}
     </Modal>
   );
