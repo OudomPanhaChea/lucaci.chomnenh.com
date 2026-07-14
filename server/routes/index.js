@@ -1,5 +1,5 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { verifyToken, requireRole } from "../middleware/auth.js";
 import { uploadProductImage, uploadAvatar, uploadBranding } from "../middleware/upload.js";
 import * as auth from "../controllers/auth.controller.js";
@@ -15,15 +15,38 @@ import * as pub from "../controllers/public.controller.js";
 const router = Router();
 const manager = requireRole("owner", "admin");
 
+// In production the request crosses Hostinger's proxy + the Next rewrite +
+// Hostinger's API proxy, so req.ip (trust proxy = 1) resolves to the web
+// server's IP, one bucket shared by every user. Key on the real client at the
+// left of X-Forwarded-For instead; hop count then doesn't matter.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const xff = req.headers["x-forwarded-for"];
+    const client = typeof xff === "string" && xff ? xff.split(",")[0].trim() : req.ip;
+    return ipKeyGenerator(client);
+  },
+  message: { message: "Too many login attempts, please wait a few minutes" },
+});
+
+// Per-account lockout on top of the IP limit: 5 failed attempts on the same
+// email block that account for 10 minutes, whatever IP they come from.
+const accountLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => String(req.body?.email || "").trim().toLowerCase(),
+  message: { message: "Too many failed attempts for this account, try again in 10 minutes" },
 });
 
 // ── Public ──────────────────────────────────────────────────────────────────
-router.post("/auth/login", loginLimiter, auth.login);
+router.post("/auth/login", loginLimiter, accountLimiter, auth.login);
 router.get("/public/menu", pub.publicMenu);
 
 // ── Authenticated ───────────────────────────────────────────────────────────

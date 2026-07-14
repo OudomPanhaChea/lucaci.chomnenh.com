@@ -392,6 +392,29 @@ npm run build
   payments rows flag `is_paydown` (sale payment >10s after the sale = paying
   owing) shown as a neutral "Paydown" pill. All smoke-tested via curl locally.
 
+### Done (2026-07-14): prod login 429s + hCDN cache poisoning
+- **Login 429 for everyone fixed**: behind Hostinger's proxy + the Next rewrite,
+  `trust proxy = 1` resolved every user to the same IP, so the login limiter's
+  bucket was shared globally. `loginLimiter` now keys on the leftmost
+  `X-Forwarded-For` entry (`ipKeyGenerator`), counts only failed attempts
+  (`skipSuccessfulRequests`), and returns a JSON message. Added a second
+  per-account limiter: 5 failed attempts on one email = 10 min block, any IP.
+  Both verified locally (per-IP and per-email buckets independent, successes
+  never count). Limiter store is in-memory; restarting the API app resets it.
+- **"This page couldn't load" / random full reloads in prod fixed**: Hostinger's
+  hCDN caches responses but ignores `Vary: RSC`, while Next static-prerendered
+  the client pages with `s-maxage=31536000`. HTML and RSC payloads of the same
+  URL shared one edge-cache slot: cached HTML broke SPA navigation (hard-reload
+  fallback), cached RSC served as the document gave Chrome's error page.
+  Verified live (RSC request on /admin/reports returned the cached HTML, HIT).
+  Fix: `export const dynamic = "force-dynamic"` in `app/layout.tsx`; all 14
+  routes now build as ƒ dynamic with `Cache-Control: no-store` (hCDN: DYNAMIC,
+  never cached). **After deploying, purge the CDN cache in hPanel** or poisoned
+  entries persist. Hostinger origin perf itself is fine (~0.35s responses).
+- `next-env.d.ts` untracked + gitignored: dev vs build rewrite it back and
+  forth (`.next/dev/types` vs `.next/types`), keeping git perpetually dirty;
+  `next build` regenerates it so deploys are unaffected.
+
 ### Pending / decisions to revisit
 - Khmer i18n intentionally skipped in v1.
 - Internal identifiers (package name `chamnenh-client`, DB `chamnenh_pos`, cookie

@@ -16,6 +16,13 @@ const firaCode = Fira_Code({
   variable: "--font-fira-code",
 });
 
+// Force every page dynamic so responses go out with no-store cache headers.
+// Static prerender stamps s-maxage=31536000, which Hostinger's hCDN caches
+// while ignoring Vary: RSC — HTML and RSC payloads then share one cache slot
+// per URL, breaking navigation (forced reloads) and page loads ("This page
+// couldn't load" when an RSC payload gets served as the document).
+export const dynamic = "force-dynamic";
+
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://lucaci.chomnenh.com";
 const DESCRIPTION = "Chomnenh point of sale. Realtime sales, inventory and client management.";
 

@@ -176,9 +176,24 @@ remote DB, if remote MySQL access is enabled in hPanel.)
 ## Gotchas
 
 - **Login rate limiter behind two proxies.** `server/index.js` sets
-  `trust proxy, 1`. Behind Hostinger's proxy plus the Next rewrite there may be
-  two hops; if every user starts sharing one rate-limit bucket (429s on login for
-  everyone), bump it to `2`.
+  `trust proxy, 1`, which resolves req.ip to the web server's IP behind
+  Hostinger's proxy plus the Next rewrite, so every user shared one bucket
+  (429s on login for everyone). Fixed 2026-07-14: the limiters in
+  `server/routes/index.js` key on the leftmost `X-Forwarded-For` entry and only
+  count failed attempts; a second limiter locks an email for 10 min after 5
+  failures. The limiter store is in-memory, so restarting the API app clears a
+  tripped bucket.
+- **hCDN cache poisoning ("This page couldn't load" / forced reloads).**
+  Hostinger fronts the web app with its hCDN, which caches responses but
+  ignores `Vary: RSC`. Next static-prerenders client pages with
+  `s-maxage=31536000`, so the HTML document and the RSC navigation payload of
+  the same URL fought over one edge-cache slot: cached HTML broke client-side
+  navigation (router falls back to full reloads), a cached RSC payload served
+  as the document gave Chrome's "This page couldn't load". Fixed 2026-07-14:
+  `export const dynamic = "force-dynamic"` in `client/app/layout.tsx` makes
+  every page render on demand with `Cache-Control: no-store` (hCDN reports
+  DYNAMIC and never caches). After deploying, purge the CDN cache in hPanel
+  (Websites → Performance/CDN) — poisoned entries live for a year otherwise.
 - **Both apps redeploy independently.** Pushing to `main` redeploys whatever app
   watches it. Schema changes must be applied in phpMyAdmin manually (run the new
   file from `server/database/migrations/`) before or right after deploying code
