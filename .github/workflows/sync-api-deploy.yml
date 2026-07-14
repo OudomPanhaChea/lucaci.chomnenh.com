@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - "server/**"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,6 +26,9 @@ jobs:
 
       - name: Split server/ into api-deploy (nested under client/) and push
         run: |
+          # commit-tree refuses to run without an ident on the runner
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           SPLIT=$(git subtree split --prefix=server HEAD)
           TREE=$(printf '040000 tree %s\tclient\n' "$(git rev-parse "$SPLIT^{tree}")" | git mktree)
           COMMIT=$(git commit-tree "$TREE" -p "$SPLIT" -m "api-deploy: server app nested under client/ (hPanel locks root directory to client)")
