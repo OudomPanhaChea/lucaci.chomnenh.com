@@ -141,8 +141,8 @@ body {
   scrollbar-color: var(--line-strong) transparent;
 }
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;

@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-11 (partner/wholesale sales: bulk units, bonus lines, optional stock)
+> Last updated: 2026-07-14 (inventory page componentized, inline category add)
 
 ## 1. What this project is
 
@@ -117,7 +117,8 @@ Key conventions carried over from WisePOS:
   all AntD components theme automatically — never hand-darken one.
 - **Fonts:** Fira Sans (body) + Fira Code (`font-mono`, use class `tabular` for numbers).
 - Shared primitives in `components/ui/*`: `StatCard`, `StatusBadge`, `SectionHeader`,
-  `EmptyState`, `Spinner`/`PageSpinner`. Reuse them, don't re-implement.
+  `EmptyState`, `Spinner`/`PageSpinner`, `ImageDropzone` (drag-and-drop upload with
+  crop/zoom/rotate editor; use it for every image upload). Reuse them, don't re-implement.
 - Icons: lucide-react only, no emojis. All clickable elements get `cursor-pointer`.
 - Auth: `hooks/useAuth.tsx` context; admin routes guarded by `app/admin/layout.tsx`.
 - Hydration gates: `hooks/useMounted.ts` (useSyncExternalStore, not setState-in-effect).
@@ -414,6 +415,52 @@ npm run build
 - `next-env.d.ts` untracked + gitignored: dev vs build rewrite it back and
   forth (`.next/dev/types` vs `.next/types`), keeping git perpetually dirty;
   `next build` regenerates it so deploys are unaffected.
+
+### Done (2026-07-14, batch 2): unified drag-and-drop image uploads + edit
+- New `components/ui/image-dropzone.tsx`: native drag-and-drop frame (no antd
+  Upload.Dragger — a first version on Dragger collapsed to zero height because the
+  frame depended on antd's internal 100%-height chain; sizes now sit on the frame
+  itself). Every image, new or already saved, goes through
+  `components/ui/image-crop-modal.tsx`: a react-easy-crop editor (zoom, rotate,
+  reset, ratio presets via `aspectSlider`, round crop for avatars) exporting through
+  a canvas capped at 2048px, JPEG 0.9 (PNG stays PNG). antd-img-crop was REMOVED
+  from package.json (it can't re-edit existing images); react-easy-crop added.
+  Filled previews get always-visible corner Edit (fetch current URL → blob → editor)
+  and Remove (Popconfirm) buttons + hover/drag-over "Replace" overlay; empty state is
+  a dashed drop target with brand highlight; busy = spinner overlay. Exposes
+  `ImageDropzoneHandle` (`browse`/`editCurrent`) via ref for controls that live
+  outside the frame. Verified with headless-Edge screenshots of a temp harness page.
+- Used by: inventory product form (deferred: cropped File in state with blob-URL
+  preview, uploaded on save; ratio presets, contained preview; visibility switches
+  restyled as bordered rows), settings logo (square dropzone), settings banners
+  (each banner tile is itself a dropzone: drop/click replaces via delete-then-add
+  `replaceBanner`, edit re-crops, X removes; add tile 3:1), profile avatar (the
+  circle is the drop target, round crop; corner actions clip on circles so
+  `cornerActions={false}` + "Edit photo · Remove photo" links drive the ref).
+- Polish pass (same day): empty dropzones get a faint dot-grid texture + icon
+  lift/brand-fill on hover, filled previews zoom slightly on hover, corner buttons
+  are blurred glass; crop modal has a dark checkerboard canvas and a labeled
+  Ratio/Zoom/Straighten control panel with live readouts and a rotate-90° button;
+  product form toggle rows (Track stock / Show in menu / Active) carry brand-soft
+  icon chips (Boxes/Globe/BadgeCheck); settings logo shows a live "header preview"
+  pill (logo + business name) and banner tiles a "Slide n" order badge; profile
+  avatar sits in a brand→#FFA040 gradient ring and the camera badge is a real
+  button (`avatarRef.browse()`).
+
+### Done (2026-07-14, batch 3): inventory page split + inline category add
+- `app/admin/inventory/page.tsx` (900 lines) split into `components/inventory/`:
+  `product-table.tsx` (presentational, callbacks up), `product-form-modal.tsx`
+  (owns its form/image/scanner state, populates via effect on open),
+  `categories-drawer.tsx`, `stock-adjust-modal.tsx`, `stock-history-drawer.tsx`
+  (the last three own their API calls; page keeps data + filters, ~180 lines).
+- New `components/inventory/category-select.tsx`: searchable category Select for
+  the product form with inline create — type a name that doesn't exist and an
+  `Add "name"` button appears in the dropdown (antd 6 `popupRender`), POSTs
+  /categories and selects the result; parent appends via `onCreated`. Custom
+  form controls MUST forward the Form.Item-injected `id` prop to the antd
+  control or the label htmlFor link breaks. Filter-bar category Select gained
+  plain `showSearch`. Verified end to end in headless Edge (recipe persisted in
+  `.claude/skills/verify/SKILL.md`).
 
 ### Pending / decisions to revisit
 - Khmer i18n intentionally skipped in v1.

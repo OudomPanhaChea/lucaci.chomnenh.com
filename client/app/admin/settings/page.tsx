@@ -1,13 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Form, Input, InputNumber, Popconfirm, Switch, Upload } from "antd";
+import { Form, Input, InputNumber, Popconfirm, Switch } from "antd";
 import { Button } from "@/components/ui/button";
-import ImgCrop from "antd-img-crop";
+import { ImageDropzone, type ImageDropzoneHandle } from "@/components/ui/image-dropzone";
 import { toast } from "react-toastify";
-import { ExternalLink, ImagePlus, Store, Trash2, X } from "lucide-react";
+import { Camera, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import api, { apiError } from "@/services/api";
-import { validateImageFile, MAX_IMAGE_MB } from "@/lib/images";
+import { MAX_IMAGE_MB } from "@/lib/images";
 import { SectionHeader } from "@/components/ui/section-header";
 import type { Settings } from "@/lib/types";
 
@@ -17,7 +17,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [logoBusy, setLogoBusy] = useState(false);
-  const [bannerBusy, setBannerBusy] = useState(false);
+  // URL of the banner being replaced, or "new" while adding one
+  const [bannerBusy, setBannerBusy] = useState<string | null>(null);
+  const logoRef = useRef<ImageDropzoneHandle>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export default function SettingsPage() {
   };
 
   const addBanner = async (file: File) => {
-    setBannerBusy(true);
+    setBannerBusy("new");
     try {
       const fd = new FormData();
       fd.append("image", file);
@@ -76,7 +78,25 @@ export default function SettingsPage() {
     } catch (err) {
       toast.error(apiError(err));
     } finally {
-      setBannerBusy(false);
+      setBannerBusy(null);
+    }
+  };
+
+  // Edit/replace = remove old then add the new file (max-4 cap blocks add-first)
+  const replaceBanner = async (url: string, file: File) => {
+    setBannerBusy(url);
+    try {
+      await api.delete<Settings>("/settings/banners", { params: { url } });
+      const fd = new FormData();
+      fd.append("image", file);
+      const { data } = await api.post<Settings>("/settings/banners", fd);
+      setSettings(data);
+      toast.success("Banner updated");
+    } catch (err) {
+      toast.error(apiError(err));
+      api.get("/settings").then(({ data }) => setSettings(data)).catch(() => {});
+    } finally {
+      setBannerBusy(null);
     }
   };
 
@@ -98,50 +118,63 @@ export default function SettingsPage() {
 
       <Form form={form} layout="vertical" onFinish={submit} requiredMark={false}>
         <div className="rounded-xl border border-line bg-surface-raised p-5 shadow-card">
-          <h2 className="mb-4 font-medium text-fg">Business</h2>
+          <h2 className="mb-4 font-medium text-fg">Business Logo</h2>
 
-          {/* Logo: uploaded (with crop), shown in the header and public menu */}
-          <div className="mb-5 flex items-center gap-4">
-            {settings?.logo_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={settings.logo_url} alt="Business logo"
-                className="h-16 w-16 rounded-xl border border-line bg-white object-cover" />
-            ) : (
-              <span className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-line-strong text-fg-subtle">
-                <Store className="h-6 w-6" />
-              </span>
-            )}
-            <div>
-              <div className="flex items-center gap-2">
-                <ImgCrop
-                  aspect={1}
-                  rotationSlider
-                  quality={0.9}
-                  modalTitle="Crop logo"
-                  beforeCrop={(file) => validateImageFile(file as File)}
-                >
-                  <Upload
-                    accept="image/*"
-                    showUploadList={false}
-                    customRequest={({ file, onSuccess }) => {
-                      uploadLogo(file as File).then(() => onSuccess?.(null));
-                    }}
-                  >
-                    <Button loading={logoBusy} icon={<ImagePlus className="h-4 w-4" />}>
-                      {settings?.logo_url ? "Change logo" : "Upload logo"}
-                    </Button>
-                  </Upload>
-                </ImgCrop>
-                {settings?.logo_url && (
-                  <Popconfirm title="Remove the logo?" onConfirm={removeLogo}>
-                    <Button danger type="text" icon={<Trash2 className="h-4 w-4" />} aria-label="Remove logo" />
-                  </Popconfirm>
-                )}
+          {/* Logo: same composition as the profile avatar, square corners.
+              Brand ring frame, camera badge to browse, Edit/Remove links below. */}
+          <div className="mb-5">
+            <div className="relative mx-auto w-fit">
+              <div className="rounded-2xl bg-brand p-[3px]">
+                <div className="rounded-xl bg-surface-raised p-[3px]">
+                  <ImageDropzone
+                    ref={logoRef}
+                    value={settings?.logo_url}
+                    onSelect={uploadLogo}
+                    busy={logoBusy}
+                    aspect={1}
+                    cropTitle="Edit logo"
+                    className="h-24 w-24"
+                    rounded="rounded-lg"
+                    overlayLabel=""
+                    cornerActions={false}
+                    placeholder={
+                      <span className="absolute inset-0 flex items-center justify-center bg-brand text-3xl font-semibold text-brand-foreground">
+                        {(settings?.business_name || "B").charAt(0).toUpperCase()}
+                      </span>
+                    }
+                  />
+                </div>
               </div>
-              <p className="mt-1.5 text-xs text-fg-muted">
-                Square image, under {MAX_IMAGE_MB}MB. Shown in the admin header, receipts and public menu.
-              </p>
+              <button
+                type="button"
+                aria-label="Change business logo"
+                disabled={logoBusy}
+                onClick={() => logoRef.current?.browse()}
+                className="absolute -bottom-1 -right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-raised text-fg-muted shadow-card transition-colors duration-200 hover:text-fg disabled:opacity-60"
+              >
+                <Camera className="h-4 w-4" />
+              </button>
             </div>
+            {settings?.logo_url && (
+              <div className="mt-2 flex items-center justify-center gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => logoRef.current?.editCurrent()}
+                  className="flex cursor-pointer items-center gap-1 text-fg-subtle transition-colors duration-200 hover:text-fg-muted"
+                >
+                  <Pencil size={14} /> Edit
+                </button>
+                <span className="text-line-strong">·</span>
+                <Popconfirm title="Remove the logo?" onConfirm={removeLogo}>
+                  <button
+                    type="button"
+                    className="flex cursor-pointer items-center gap-1 text-xs text-fg-subtle transition-colors duration-200 hover:text-fg-muted"
+                  >
+                    <Trash2 size={14} /> Remove
+                  </button>
+                </Popconfirm>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
@@ -198,50 +231,40 @@ export default function SettingsPage() {
           {/* Banner carousel images (saved immediately, not part of the form) */}
           <p className="mb-1 text-sm font-medium text-fg">Menu banners</p>
           <p className="mb-3 text-xs text-fg-muted">
-            Shown as a slideshow at the top of the public menu. Up to {MAX_BANNERS} images
-            (wide 3:1 crop), under {MAX_IMAGE_MB}MB each.
+            Shown as a slideshow at the top of the public menu, in this order. Up to{" "}
+            {MAX_BANNERS} images (wide 3:1 crop), under {MAX_IMAGE_MB}MB each.
           </p>
           <div className="grid grid-cols-2 gap-3">
-            {banners.map((url) => (
-              <div key={url} className="group relative overflow-hidden rounded-lg border border-line">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="Menu banner" className="aspect-[3/1] w-full object-cover" />
-                <Popconfirm title="Remove this banner?" onConfirm={() => removeBanner(url)}>
-                  <button
-                    type="button"
-                    aria-label="Remove banner"
-                    className="absolute right-1.5 top-1.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition-colors duration-200 hover:bg-black/75"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </Popconfirm>
+            {banners.map((url, i) => (
+              <div key={url} className="relative">
+                <ImageDropzone
+                  value={url}
+                  onSelect={(file) => replaceBanner(url, file)}
+                  onRemove={() => removeBanner(url)}
+                  removeConfirm="Remove this banner?"
+                  busy={bannerBusy === url}
+                  aspect={3}
+                  cropTitle="Edit banner"
+                  className="aspect-[3/1] w-full"
+                  rounded="rounded-lg"
+                  overlayLabel="Replace"
+                />
+                <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                  Slide {i + 1}
+                </span>
               </div>
             ))}
             {banners.length < MAX_BANNERS && (
-              <ImgCrop
+              <ImageDropzone
+                onSelect={addBanner}
+                busy={bannerBusy === "new"}
                 aspect={3}
-                rotationSlider
-                quality={0.9}
-                modalTitle="Crop banner"
-                beforeCrop={(file) => validateImageFile(file as File)}
-              >
-                <Upload
-                  accept="image/*"
-                  showUploadList={false}
-                  customRequest={({ file, onSuccess }) => {
-                    addBanner(file as File).then(() => onSuccess?.(null));
-                  }}
-                >
-                  <button
-                    type="button"
-                    disabled={bannerBusy}
-                    className="flex aspect-[3/1] w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line-strong text-fg-subtle transition-colors duration-200 hover:border-brand hover:text-fg-muted disabled:opacity-60"
-                  >
-                    <ImagePlus className="h-5 w-5" />
-                    <span className="text-xs">Add banner ({banners.length}/{MAX_BANNERS})</span>
-                  </button>
-                </Upload>
-              </ImgCrop>
+                cropTitle="Crop banner"
+                className="aspect-[3/1] w-full"
+                rounded="rounded-lg"
+                label={`Add banner (${banners.length}/${MAX_BANNERS})`}
+                hint="Drop an image or click"
+              />
             )}
           </div>
         </div>

@@ -2,14 +2,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  Input, InputNumber, Modal, Select, Segmented, Form, Switch,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
+  Segmented,
+  Form,
+  Switch,
 } from "antd";
 import { Button } from "@/components/ui/button";
 import { toast } from "react-toastify";
 import {
-  ScanBarcode, Search, Minus, Plus, Trash2, ShoppingCart, Printer,
-  PackageOpen, UserPlus, Gift, Handshake, UserRound, Banknote, QrCode,
-  CreditCard, Landmark,
+  ScanBarcode,
+  Search,
+  Minus,
+  Plus,
+  Trash2,
+  ShoppingCart,
+  Printer,
+  PackageOpen,
+  UserPlus,
+  Gift,
+  Handshake,
+  UserRound,
+  Banknote,
+  QrCode,
+  CreditCard,
+  Landmark,
 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { playScanBeep, playScanError } from "@/lib/sound";
@@ -20,22 +39,35 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { money, khr, unitPrice } from "@/lib/format";
 import type {
-  Product, ProductUnit, Category, Client, CartLine, Sale, Settings, PaymentMethod,
+  Product,
+  ProductUnit,
+  Category,
+  Client,
+  CartLine,
+  Sale,
+  Settings,
+  PaymentMethod,
 } from "@/lib/types";
 
 // A cart line is product + unit (+ bonus flag): the same product can sit in the
 // cart as pieces, as a "Box of 12", and as a FREE bonus line at the same time.
-const lineKey = (l: CartLine) => `${l.product.id}:${l.unit?.id ?? 0}:${l.is_bonus ? 1 : 0}`;
+const lineKey = (l: CartLine) =>
+  `${l.product.id}:${l.unit?.id ?? 0}:${l.is_bonus ? 1 : 0}`;
 const lineFactor = (l: CartLine) => l.unit?.factor ?? 1;
 const lineListPrice = (l: CartLine) =>
-  l.unit ? Number(l.unit.sell_price) : unitPrice(l.product.sell_price, l.product.discount_pct);
-const linePrice = (l: CartLine) => (l.is_bonus ? 0 : l.price ?? lineListPrice(l));
+  l.unit
+    ? Number(l.unit.sell_price)
+    : unitPrice(l.product.sell_price, l.product.discount_pct);
+const linePrice = (l: CartLine) =>
+  l.is_bonus ? 0 : (l.price ?? lineListPrice(l));
 // Stock is counted in base pieces across every line of the product
 const piecesOf = (lines: CartLine[], productId: number, exceptKey?: string) =>
   lines.reduce(
     (n, l) =>
-      l.product.id === productId && lineKey(l) !== exceptKey ? n + l.quantity * lineFactor(l) : n,
-    0
+      l.product.id === productId && lineKey(l) !== exceptKey
+        ? n + l.quantity * lineFactor(l)
+        : n,
+    0,
   );
 // Small pill buttons used for quick amounts in the payment modal
 const chipCls = (active: boolean) =>
@@ -67,34 +99,54 @@ export default function PosPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadProducts = useCallback(() => {
-    api.get("/products", { params: { active: 1 } }).then(({ data }) => setProducts(data)).catch(() => {});
+    api
+      .get("/products", { params: { active: 1 } })
+      .then(({ data }) => setProducts(data))
+      .catch(() => {});
   }, []);
   const loadClients = useCallback(() => {
-    api.get("/clients").then(({ data }) => setClients(data)).catch(() => {});
+    api
+      .get("/clients")
+      .then(({ data }) => setClients(data))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     loadProducts();
     loadClients();
-    api.get("/categories").then(({ data }) => setCategories(data)).catch(() => {});
-    api.get("/settings").then(({ data }) => setSettings(data)).catch(() => {});
+    api
+      .get("/categories")
+      .then(({ data }) => setCategories(data))
+      .catch(() => {});
+    api
+      .get("/settings")
+      .then(({ data }) => setSettings(data))
+      .catch(() => {});
   }, [loadProducts, loadClients]);
 
   useRealtime(["product:changed"], loadProducts);
   useRealtime(["client:changed"], loadClients);
-  useRealtime(["settings:changed"], (_e, payload) => setSettings(payload as Settings));
+  useRealtime(["settings:changed"], (_e, payload) =>
+    setSettings(payload as Settings),
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter(
       (p) =>
         (!categoryId || p.category_id === categoryId) &&
-        (!q || p.name.toLowerCase().includes(q) || p.barcode?.includes(q) || p.sku?.toLowerCase().includes(q))
+        (!q ||
+          p.name.toLowerCase().includes(q) ||
+          p.barcode?.includes(q) ||
+          p.sku?.toLowerCase().includes(q)),
     );
   }, [products, search, categoryId]);
 
   const addToCart = useCallback(
-    (product: Product, opts: { unit?: ProductUnit | null; silent?: boolean } = {}) => {
+    (
+      product: Product,
+      opts: { unit?: ProductUnit | null; silent?: boolean } = {},
+    ) => {
       const unit = opts.unit ?? null;
       setCart((prev) => {
         // Stock check in pieces across every line of this product; NULL = untracked
@@ -102,19 +154,27 @@ export default function PosPage() {
           const used = piecesOf(prev, product.id);
           if (used + (unit?.factor ?? 1) > product.stock_qty) {
             playScanError();
-            toast.warn(`Only ${product.stock_qty} pcs in stock for "${product.name}"`);
+            toast.warn(
+              `Only ${product.stock_qty} pcs in stock for "${product.name}"`,
+            );
             return prev;
           }
         }
-        if (!opts.silent) toast.success(`${product.name} added`, { autoClose: 900 });
+        if (!opts.silent)
+          toast.success(`${product.name} added`, { autoClose: 900 });
         const key = `${product.id}:${unit?.id ?? 0}:0`;
         const line = prev.find((l) => lineKey(l) === key);
         return line
-          ? prev.map((l) => (lineKey(l) === key ? { ...l, quantity: l.quantity + 1 } : l))
-          : [...prev, { product, unit, quantity: 1, price: null, is_bonus: false }];
+          ? prev.map((l) =>
+              lineKey(l) === key ? { ...l, quantity: l.quantity + 1 } : l,
+            )
+          : [
+              ...prev,
+              { product, unit, quantity: 1, price: null, is_bonus: false },
+            ];
       });
     },
-    []
+    [],
   );
 
   // Barcode entry point for camera scans. Sound is the only feedback:
@@ -127,22 +187,31 @@ export default function PosPage() {
         addToCart(local, { silent: true });
         return;
       }
-      const byUnit = products.find((p) => p.units?.some((u) => u.barcode === code));
+      const byUnit = products.find((p) =>
+        p.units?.some((u) => u.barcode === code),
+      );
       if (byUnit) {
-        addToCart(byUnit, { unit: byUnit.units!.find((u) => u.barcode === code), silent: true });
+        addToCart(byUnit, {
+          unit: byUnit.units!.find((u) => u.barcode === code),
+          silent: true,
+        });
         return;
       }
       try {
-        const { data } = await api.get(`/products/barcode/${encodeURIComponent(code)}`);
+        const { data } = await api.get(
+          `/products/barcode/${encodeURIComponent(code)}`,
+        );
         const unit = data.matched_unit_id
-          ? (data.units ?? []).find((u: ProductUnit) => u.id === data.matched_unit_id) ?? null
+          ? ((data.units ?? []).find(
+              (u: ProductUnit) => u.id === data.matched_unit_id,
+            ) ?? null)
           : null;
         addToCart(data, { unit, silent: true });
       } catch {
         playScanError();
       }
     },
-    [products, addToCart]
+    [products, addToCart],
   );
 
   // USB scanners "type" the code then send Enter. Beep on hit, buzz on an
@@ -151,14 +220,19 @@ export default function PosPage() {
     const code = search.trim();
     if (!code) return;
     const exact = products.find((p) => p.barcode === code);
-    const byUnit = exact ? null : products.find((p) => p.units?.some((u) => u.barcode === code));
+    const byUnit = exact
+      ? null
+      : products.find((p) => p.units?.some((u) => u.barcode === code));
     if (exact) {
       playScanBeep();
       addToCart(exact, { silent: true });
       setSearch("");
     } else if (byUnit) {
       playScanBeep();
-      addToCart(byUnit, { unit: byUnit.units!.find((u) => u.barcode === code), silent: true });
+      addToCart(byUnit, {
+        unit: byUnit.units!.find((u) => u.barcode === code),
+        silent: true,
+      });
       setSearch("");
     } else if (filtered.length === 1) {
       playScanBeep();
@@ -184,7 +258,13 @@ export default function PosPage() {
       }
       if (next.product.stock_qty !== null) {
         const avail = next.product.stock_qty - piecesOf(rest, next.product.id);
-        next = { ...next, quantity: Math.min(next.quantity, Math.max(Math.floor(avail / lineFactor(next)), 0)) };
+        next = {
+          ...next,
+          quantity: Math.min(
+            next.quantity,
+            Math.max(Math.floor(avail / lineFactor(next)), 0),
+          ),
+        };
       }
       if (next.quantity <= 0) return rest;
       const out = [...rest];
@@ -192,11 +272,14 @@ export default function PosPage() {
       return out;
     });
   };
-  const setQty = (key: string, qty: number) => mutateLine(key, (l) => ({ ...l, quantity: qty }));
+  const setQty = (key: string, qty: number) =>
+    mutateLine(key, (l) => ({ ...l, quantity: qty }));
   const changeUnit = (key: string, unitId: number) =>
     mutateLine(key, (l) => ({
       ...l,
-      unit: unitId ? (l.product.units ?? []).find((u) => u.id === unitId) ?? null : null,
+      unit: unitId
+        ? ((l.product.units ?? []).find((u) => u.id === unitId) ?? null)
+        : null,
       price: null,
     }));
   const toggleBonus = (key: string) =>
@@ -218,9 +301,13 @@ export default function PosPage() {
   // sale is open, even mid-rush with a full cart.
   const isPartner = selectedClient?.client_type === "partner";
   const clientCredit = round2(Number(selectedClient?.credit_balance) || 0);
-  const creditApplied = useCredit && selectedClient ? Math.min(clientCredit, total) : 0;
+  const creditApplied =
+    useCredit && selectedClient ? Math.min(clientCredit, total) : 0;
   const dueAfterCredit = round2(total - creditApplied);
-  const payingNow = payAmount === null ? dueAfterCredit : Math.min(round2(payAmount), dueAfterCredit);
+  const payingNow =
+    payAmount === null
+      ? dueAfterCredit
+      : Math.min(round2(payAmount), dueAfterCredit);
   const owing = round2(dueAfterCredit - payingNow);
   const change = received !== null ? received - payingNow : null;
 
@@ -241,7 +328,7 @@ export default function PosPage() {
           quantity: l.quantity,
           unit_id: l.unit?.id,
           // only send a price when the cashier actually overrode it
-          price: l.is_bonus ? undefined : l.price ?? undefined,
+          price: l.is_bonus ? undefined : (l.price ?? undefined),
           is_bonus: l.is_bonus || undefined,
         })),
         client_id: clientId,
@@ -261,7 +348,9 @@ export default function PosPage() {
       setMethod("cash");
       setPayOpen(false);
       if (owing > 0) {
-        toast.info(`Sale ${data.invoice_number} completed, ${money(owing)} owing`);
+        toast.info(
+          `Sale ${data.invoice_number} completed, ${money(owing)} owing`,
+        );
       } else {
         toast.success(`Sale ${data.invoice_number} completed`);
       }
@@ -274,7 +363,11 @@ export default function PosPage() {
     }
   };
 
-  const quickCreateClient = async (values: { name: string; phone?: string; client_type?: "normal" | "partner" }) => {
+  const quickCreateClient = async (values: {
+    name: string;
+    phone?: string;
+    client_type?: "normal" | "partner";
+  }) => {
     try {
       const { data } = await api.post("/clients", values);
       await loadClients();
@@ -301,7 +394,11 @@ export default function PosPage() {
             onChange={(e) => setSearch(e.target.value)}
             onPressEnter={onSearchEnter}
           />
-          <Button size="large" icon={<ScanBarcode className="h-4.5 w-4.5" />} onClick={() => setScannerOpen(true)}>
+          <Button
+            size="large"
+            icon={<ScanBarcode className="h-4.5 w-4.5" />}
+            onClick={() => setScannerOpen(true)}
+          >
             <span className="hidden sm:inline">Scan</span>
           </Button>
         </div>
@@ -325,15 +422,21 @@ export default function PosPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
-            <EmptyState icon={PackageOpen} title="No products found"
-              description="Try a different search, or add products in Inventory." />
+            <EmptyState
+              icon={PackageOpen}
+              title="No products found"
+              description="Try a different search, or add products in Inventory."
+            />
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
               {filtered.map((p) => {
                 const price = unitPrice(p.sell_price, p.discount_pct);
                 const out = p.stock_qty !== null && p.stock_qty <= 0;
                 // In partner mode, surface the largest bulk unit's price on the card
-                const bulk = isPartner && p.units?.length ? p.units[p.units.length - 1] : null;
+                const bulk =
+                  isPartner && p.units?.length
+                    ? p.units[p.units.length - 1]
+                    : null;
                 return (
                   <button
                     key={p.id}
@@ -347,11 +450,15 @@ export default function PosPage() {
                       out ? "opacity-50" : "cursor-pointer hover:border-brand"
                     }`}
                   >
-                    <div className="relative aspect-[4/3] w-full shrink-0 bg-surface-sunken">
+                    <div className="relative aspect-[1/1] w-full shrink-0 bg-surface-sunken">
                       {p.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.image_url} alt={p.name} loading="lazy"
-                          className="absolute inset-0 h-full w-full object-cover" />
+                        <img
+                          src={p.image_url}
+                          alt={p.name}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
                       ) : (
                         <div className="flex h-full items-center justify-center">
                           <PackageOpen className="h-7 w-7 text-fg-subtle" />
@@ -369,7 +476,9 @@ export default function PosPage() {
                       )}
                     </div>
                     <div className="flex flex-1 flex-col p-2.5">
-                      <p className="truncate text-sm font-medium text-fg">{p.name}</p>
+                      <p className="truncate text-sm font-medium text-fg">
+                        {p.name}
+                      </p>
                       {bulk && (
                         <p className="tabular truncate text-[11px] font-medium text-amber-600 dark:text-amber-400">
                           {bulk.name}: {money(bulk.sell_price)}
@@ -380,7 +489,9 @@ export default function PosPage() {
                           {money(price)}
                         </span>
                         {p.stock_qty !== null && (
-                          <span className="tabular text-xs text-fg-subtle">{p.stock_qty} left</span>
+                          <span className="tabular text-xs text-fg-subtle">
+                            {p.stock_qty} left
+                          </span>
                         )}
                       </div>
                     </div>
@@ -393,9 +504,11 @@ export default function PosPage() {
       </div>
 
       {/* ── Cart ── */}
-      <div className={`flex w-full flex-col overflow-hidden rounded-xl border bg-surface-raised shadow-card xl:h-full xl:w-96 2xl:w-[26rem] ${
-        isPartner ? "border-amber-400/70 dark:border-amber-500/50" : "border-line"
-      }`}>
+      <div
+        className={`flex w-full flex-col overflow-hidden rounded-xl border bg-surface-raised shadow-card xl:h-full xl:w-96 2xl:w-[26rem] ${
+          isPartner ? "border-brand/50 dark:border-brand-500/50" : "border-line"
+        }`}
+      >
         <div className="flex items-center justify-between border-b border-line p-3">
           <h2 className="flex items-center gap-2 font-medium text-fg">
             <ShoppingCart className="h-4.5 w-4.5" /> Cart
@@ -404,8 +517,11 @@ export default function PosPage() {
             </span>
           </h2>
           {cart.length > 0 && (
-            <button type="button" onClick={() => setCart([])}
-              className="cursor-pointer text-sm text-rose-600 transition-colors duration-200 hover:text-rose-700 dark:text-rose-400">
+            <button
+              type="button"
+              onClick={() => setCart([])}
+              className="cursor-pointer text-sm text-rose-600 transition-colors duration-200 hover:text-rose-700 dark:text-rose-400"
+            >
               Clear
             </button>
           )}
@@ -413,16 +529,18 @@ export default function PosPage() {
 
         {/* Who this sale is for: amber = partner (wholesale), brand = named client */}
         {selectedClient && (
-          <div className={`flex items-center gap-2 border-b px-3 py-2 text-sm ${
-            isPartner
-              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-              : "border-line bg-brand-soft text-brand-soft-foreground"
-          }`}>
-            {isPartner
-              ? <Handshake className="h-4 w-4 shrink-0" />
-              : <UserRound className="h-4 w-4 shrink-0" />}
+          <div
+            className={`flex items-center gap-2 border-b px-3 py-2 text-sm border-line bg-brand-soft text-brand-soft-foreground`}
+          >
+            {isPartner ? (
+              <Handshake className="h-4 w-4 shrink-0" />
+            ) : (
+              <UserRound className="h-4 w-4 shrink-0" />
+            )}
             <span className="min-w-0 flex-1 truncate">
-              <span className="font-semibold">{isPartner ? "Partner sale" : "Client sale"}</span>
+              <span className="font-semibold">
+                {isPartner ? "Partner sale" : "Client sale"}
+              </span>
               : {selectedClient.name}
             </span>
           </div>
@@ -439,7 +557,8 @@ export default function PosPage() {
                 const key = lineKey(l);
                 const price = linePrice(l);
                 const listPrice = lineListPrice(l);
-                const negotiated = !l.is_bonus && l.price !== null && l.price !== listPrice;
+                const negotiated =
+                  !l.is_bonus && l.price !== null && l.price !== listPrice;
                 const hasUnits = (l.product.units?.length ?? 0) > 0;
                 return (
                   <li key={key} className="space-y-1.5 px-3 py-2.5">
@@ -452,19 +571,33 @@ export default function PosPage() {
                           </span>
                         )}
                       </p>
-                      <button type="button" title={l.is_bonus ? "Make it a paid line" : "Mark as FREE bonus"}
-                        aria-label={l.is_bonus ? "Make it a paid line" : "Mark as FREE bonus"}
+                      <button
+                        type="button"
+                        title={
+                          l.is_bonus
+                            ? "Make it a paid line"
+                            : "Mark as FREE bonus"
+                        }
+                        aria-label={
+                          l.is_bonus
+                            ? "Make it a paid line"
+                            : "Mark as FREE bonus"
+                        }
                         onClick={() => toggleBonus(key)}
                         className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors duration-200 ${
                           l.is_bonus
                             ? "bg-brand text-brand-soft dark:bg-brand-500 dark:text-brand-700"
                             : "text-fg-subtle hover:bg-surface-sunken hover:text-fg"
-                        }`}>
+                        }`}
+                      >
                         <Gift className="h-3.5 w-3.5" />
                       </button>
-                      <button type="button" aria-label="Remove item"
+                      <button
+                        type="button"
+                        aria-label="Remove item"
                         onClick={() => setQty(key, 0)}
-                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-rose-500 transition-colors duration-200 hover:bg-rose-50 dark:hover:bg-rose-500/10">
+                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-rose-500 transition-colors duration-200 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -477,36 +610,58 @@ export default function PosPage() {
                           onChange={(v) => changeUnit(key, v)}
                           options={[
                             { value: 0, label: "Piece" },
-                            ...(l.product.units ?? []).map((u) => ({ value: u.id, label: u.name })),
+                            ...(l.product.units ?? []).map((u) => ({
+                              value: u.id,
+                              label: u.name,
+                            })),
                           ]}
                         />
                       )}
                       {l.is_bonus ? (
-                        <span className="flex-1 text-xs text-fg-subtle">Bonus, not charged</span>
+                        <span className="flex-1 text-xs text-fg-subtle">
+                          Bonus, not charged
+                        </span>
                       ) : (
                         <InputNumber
-                          size="small" min={0} step={0.25} prefix="$" className="!w-24"
+                          size="small"
+                          min={0}
+                          step={0.25}
+                          prefix="$"
+                          className="!w-24"
                           title="Line price, editable for negotiated deals. Clear it to return to the list price"
                           status={negotiated ? "warning" : undefined}
                           value={price}
-                          onChange={(v) => setLinePrice(key, v === null ? null : Number(v))}
+                          onChange={(v) =>
+                            setLinePrice(key, v === null ? null : Number(v))
+                          }
                         />
                       )}
                       <div className="ml-auto flex items-center gap-1">
-                        <button type="button" aria-label="Decrease quantity"
+                        <button
+                          type="button"
+                          aria-label="Decrease quantity"
                           onClick={() => setQty(key, l.quantity - 1)}
-                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken">
+                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken"
+                        >
                           <Minus className="h-3.5 w-3.5" />
                         </button>
                         <InputNumber
-                          size="small" min={0} controls={false} aria-label="Quantity"
+                          size="small"
+                          min={0}
+                          controls={false}
+                          aria-label="Quantity"
                           className="!w-12 [&_input]:!text-center"
                           value={l.quantity}
-                          onChange={(v) => { if (v !== null) setQty(key, Number(v)); }}
+                          onChange={(v) => {
+                            if (v !== null) setQty(key, Number(v));
+                          }}
                         />
-                        <button type="button" aria-label="Increase quantity"
+                        <button
+                          type="button"
+                          aria-label="Increase quantity"
                           onClick={() => setQty(key, l.quantity + 1)}
-                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken">
+                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken"
+                        >
                           <Plus className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -516,8 +671,13 @@ export default function PosPage() {
                         `${l.quantity} × FREE`
                       ) : (
                         <>
-                          {negotiated && <s className="mr-1 text-fg-subtle">{money(listPrice)}</s>}
-                          {money(price)} × {l.quantity} = {money(price * l.quantity)}
+                          {negotiated && (
+                            <s className="mr-1 text-fg-subtle">
+                              {money(listPrice)}
+                            </s>
+                          )}
+                          {money(price)} × {l.quantity} ={" "}
+                          {money(price * l.quantity)}
                         </>
                       )}
                       {l.unit && ` (${l.quantity * l.unit.factor} pcs)`}
@@ -564,69 +724,104 @@ export default function PosPage() {
                 );
               }}
             />
-            <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => setQuickClientOpen(true)}
-              aria-label="Quick add client" />
+            <Button
+              icon={<UserPlus className="h-4 w-4" />}
+              onClick={() => setQuickClientOpen(true)}
+              aria-label="Quick add client"
+            />
           </div>
 
           <div className="flex items-center justify-between text-sm">
             <span className="text-fg-muted">Discount %</span>
-            <InputNumber min={0} max={100} value={discountPct}
-              onChange={(v) => setDiscountPct(Number(v) || 0)} className="!w-24" />
+            <InputNumber
+              min={0}
+              max={100}
+              value={discountPct}
+              onChange={(v) => setDiscountPct(Number(v) || 0)}
+              className="!w-24"
+            />
           </div>
 
           <div className="space-y-1 text-sm">
             <div className="flex justify-between text-fg-muted">
-              <span>Subtotal</span><span className="tabular">{money(subtotal)}</span>
+              <span>Subtotal</span>
+              <span className="tabular">{money(subtotal)}</span>
             </div>
             {discountAmount > 0 && (
               <div className="flex justify-between text-fg-muted">
-                <span>Discount</span><span className="tabular">-{money(discountAmount)}</span>
+                <span>Discount</span>
+                <span className="tabular">-{money(discountAmount)}</span>
               </div>
             )}
             {taxRate > 0 && (
               <div className="flex justify-between text-fg-muted">
-                <span>Tax ({taxRate}%)</span><span className="tabular">{money(taxAmount)}</span>
+                <span>Tax ({taxRate}%)</span>
+                <span className="tabular">{money(taxAmount)}</span>
               </div>
             )}
             <div className="flex items-baseline justify-between border-t border-line pt-1.5">
               <span className="text-base font-semibold text-fg">Total</span>
-              <span className="tabular text-2xl font-bold text-fg">{money(total)}</span>
+              <span className="tabular text-2xl font-bold text-fg">
+                {money(total)}
+              </span>
             </div>
             {settings && (
               <div className="flex justify-between text-xs text-fg-subtle">
-                <span>KHR</span><span className="tabular">{khr(total, settings.exchange_rate)}</span>
+                <span>KHR</span>
+                <span className="tabular">
+                  {khr(total, settings.exchange_rate)}
+                </span>
               </div>
             )}
           </div>
 
-          {selectedClient && (Number(selectedClient.credit_balance) > 0 || Number(selectedClient.outstanding) > 0) && (
-            <p className="text-xs text-fg-subtle">
-              {Number(selectedClient.credit_balance) > 0 && (
-                <span className="text-emerald-600 dark:text-emerald-400">
-                  Prepaid {money(selectedClient.credit_balance)}
-                </span>
-              )}
-              {Number(selectedClient.credit_balance) > 0 && Number(selectedClient.outstanding) > 0 && " · "}
-              {Number(selectedClient.outstanding) > 0 && (
-                <span className="text-rose-600 dark:text-rose-400">
-                  Owes {money(selectedClient.outstanding)}
-                </span>
-              )}
-            </p>
-          )}
+          {selectedClient &&
+            (Number(selectedClient.credit_balance) > 0 ||
+              Number(selectedClient.outstanding) > 0) && (
+              <p className="text-xs text-fg-subtle">
+                {Number(selectedClient.credit_balance) > 0 && (
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    Prepaid {money(selectedClient.credit_balance)}
+                  </span>
+                )}
+                {Number(selectedClient.credit_balance) > 0 &&
+                  Number(selectedClient.outstanding) > 0 &&
+                  " · "}
+                {Number(selectedClient.outstanding) > 0 && (
+                  <span className="text-rose-600 dark:text-rose-400">
+                    Owes {money(selectedClient.outstanding)}
+                  </span>
+                )}
+              </p>
+            )}
 
-          <Button type="primary" size="large" block disabled={cart.length === 0} onClick={openPay}>
+          <Button
+            type="primary"
+            size="large"
+            block
+            disabled={cart.length === 0}
+            onClick={openPay}
+          >
             Charge {money(total)}
           </Button>
           {lastSale && (
-            <Button block icon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>
+            <Button
+              block
+              icon={<Printer className="h-4 w-4" />}
+              onClick={() => window.print()}
+            >
               Print last receipt ({lastSale.invoice_number})
             </Button>
           )}
         </div>
       </div>
 
-      <BarcodeScanner open={scannerOpen} continuous onClose={() => setScannerOpen(false)} onScan={handleBarcode} />
+      <BarcodeScanner
+        open={scannerOpen}
+        continuous
+        onClose={() => setScannerOpen(false)}
+        onScan={handleBarcode}
+      />
 
       {/* ── Payment modal ── */}
       <Modal
@@ -634,29 +829,46 @@ export default function PosPage() {
         onCancel={() => setPayOpen(false)}
         centered
         title="Take payment"
-        okText={owing > 0 ? `Confirm, ${money(owing)} owing` : `Confirm ${money(total)}`}
+        okText={
+          owing > 0
+            ? `Confirm, ${money(owing)} owing`
+            : `Confirm ${money(total)}`
+        }
         onOk={checkout}
         confirmLoading={paying}
         okButtonProps={{
           size: "large",
           disabled:
             (owing > 0 && !clientId) ||
-            (method === "cash" && payingNow > 0 && received !== null && received < payingNow),
+            (method === "cash" &&
+              payingNow > 0 &&
+              received !== null &&
+              received < payingNow),
         }}
       >
         <div className="space-y-4 py-2">
           {/* Amount due + who is paying */}
           <div className="rounded-lg bg-surface-sunken p-3 text-center">
             <p className="text-sm text-fg-muted">Amount due</p>
-            <p className="tabular text-3xl font-semibold text-fg">{money(total)}</p>
-            {settings && <p className="tabular text-sm text-fg-subtle">{khr(total, settings.exchange_rate)}</p>}
+            <p className="tabular text-3xl font-semibold text-fg">
+              {money(total)}
+            </p>
+            {settings && (
+              <p className="tabular text-sm text-fg-subtle">
+                {khr(total, settings.exchange_rate)}
+              </p>
+            )}
             <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs text-fg-muted">
               {selectedClient ? (
                 <>
-                  {isPartner
-                    ? <Handshake className="h-3.5 w-3.5" />
-                    : <UserRound className="h-3.5 w-3.5" />}
-                  <span className="font-medium text-fg">{selectedClient.name}</span>
+                  {isPartner ? (
+                    <Handshake className="h-3.5 w-3.5" />
+                  ) : (
+                    <UserRound className="h-3.5 w-3.5" />
+                  )}
+                  <span className="font-medium text-fg">
+                    {selectedClient.name}
+                  </span>
                   {isPartner && (
                     <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                       Partner
@@ -673,9 +885,18 @@ export default function PosPage() {
             <label className="flex cursor-pointer items-center justify-between rounded-lg border border-line px-3 py-2.5 transition-colors duration-200 hover:border-line-strong">
               <span className="text-sm text-fg">
                 Use prepaid balance
-                <span className="tabular ml-1 text-fg-muted">({money(clientCredit)} available)</span>
+                <span className="tabular ml-1 text-fg-muted">
+                  ({money(clientCredit)} available)
+                </span>
               </span>
-              <Switch checked={useCredit} onChange={(v) => { setUseCredit(v); setPayAmount(null); setReceived(null); }} />
+              <Switch
+                checked={useCredit}
+                onChange={(v) => {
+                  setUseCredit(v);
+                  setPayAmount(null);
+                  setReceived(null);
+                }}
+              />
             </label>
           )}
 
@@ -686,28 +907,73 @@ export default function PosPage() {
                 value={method}
                 onChange={(v) => setMethod(v as PaymentMethod)}
                 options={[
-                  { label: <span className="flex items-center justify-center gap-1.5"><Banknote className="h-4 w-4" />Cash</span>, value: "cash" },
-                  { label: <span className="flex items-center justify-center gap-1.5"><QrCode className="h-4 w-4" />KHQR</span>, value: "khqr" },
-                  { label: <span className="flex items-center justify-center gap-1.5"><CreditCard className="h-4 w-4" />Card</span>, value: "card" },
-                  { label: <span className="flex items-center justify-center gap-1.5"><Landmark className="h-4 w-4" />Bank</span>, value: "bank" },
+                  {
+                    label: (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <Banknote className="h-4 w-4" />
+                        Cash
+                      </span>
+                    ),
+                    value: "cash",
+                  },
+                  {
+                    label: (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <QrCode className="h-4 w-4" />
+                        KHQR
+                      </span>
+                    ),
+                    value: "khqr",
+                  },
+                  {
+                    label: (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <CreditCard className="h-4 w-4" />
+                        Card
+                      </span>
+                    ),
+                    value: "card",
+                  },
+                  {
+                    label: (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <Landmark className="h-4 w-4" />
+                        Bank
+                      </span>
+                    ),
+                    value: "bank",
+                  },
                 ]}
               />
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <p className="text-sm text-fg-muted">Paying now</p>
                   <div className="flex gap-1.5">
-                    <button type="button" className={chipCls(payingNow === dueAfterCredit)}
-                      onClick={() => setPayAmount(null)}>
+                    <button
+                      type="button"
+                      className={chipCls(payingNow === dueAfterCredit)}
+                      onClick={() => setPayAmount(null)}
+                    >
                       Full
                     </button>
-                    <button type="button" className={chipCls(payAmount !== null && payingNow === 0)}
-                      onClick={() => { setPayAmount(0); setReceived(null); }}>
+                    <button
+                      type="button"
+                      className={chipCls(payAmount !== null && payingNow === 0)}
+                      onClick={() => {
+                        setPayAmount(0);
+                        setReceived(null);
+                      }}
+                    >
                       Pay later
                     </button>
                   </div>
                 </div>
                 <InputNumber
-                  size="large" className="!w-full" min={0} max={dueAfterCredit} prefix="$"
+                  size="large"
+                  className="!w-full"
+                  min={0}
+                  max={dueAfterCredit}
+                  prefix="$"
                   value={payAmount === null ? dueAfterCredit : payAmount}
                   onChange={(v) => setPayAmount(v === null ? 0 : Number(v))}
                 />
@@ -716,17 +982,32 @@ export default function PosPage() {
                 <div>
                   <p className="mb-1 text-sm text-fg-muted">Cash received</p>
                   <InputNumber
-                    autoFocus size="large" className="!w-full" min={0} prefix="$"
-                    value={received} onChange={(v) => setReceived(v === null ? null : Number(v))}
+                    autoFocus
+                    size="large"
+                    className="!w-full"
+                    min={0}
+                    prefix="$"
+                    value={received}
+                    onChange={(v) => setReceived(v === null ? null : Number(v))}
                   />
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    <button type="button" className={chipCls(received !== null && received === payingNow)}
-                      onClick={() => setReceived(payingNow)}>
+                    <button
+                      type="button"
+                      className={chipCls(
+                        received !== null && received === payingNow,
+                      )}
+                      onClick={() => setReceived(payingNow)}
+                    >
                       Exact
                     </button>
                     {[5, 10, 20, 50, 100].map((d) => (
-                      <button key={d} type="button" disabled={d < payingNow}
-                        className={chipCls(received === d)} onClick={() => setReceived(d)}>
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={d < payingNow}
+                        className={chipCls(received === d)}
+                        onClick={() => setReceived(d)}
+                      >
                         ${d}
                       </button>
                     ))}
@@ -734,7 +1015,11 @@ export default function PosPage() {
                   {change !== null && change >= 0 && (
                     <p className="tabular mt-2 text-sm font-semibold text-fg">
                       Change: {money(change)}
-                      {settings && <span className="ml-1 font-normal text-fg-muted">({khr(change, settings.exchange_rate)})</span>}
+                      {settings && (
+                        <span className="ml-1 font-normal text-fg-muted">
+                          ({khr(change, settings.exchange_rate)})
+                        </span>
+                      )}
                     </p>
                   )}
                   {change !== null && change < 0 && (
@@ -767,13 +1052,22 @@ export default function PosPage() {
             )}
             <div className="flex items-center justify-between border-t border-line pt-1.5">
               <span className="text-fg-muted">Invoice will be</span>
-              <StatusBadge status={owing <= 0 ? "paid" : payingNow + creditApplied > 0 ? "partial" : "unpaid"} />
+              <StatusBadge
+                status={
+                  owing <= 0
+                    ? "paid"
+                    : payingNow + creditApplied > 0
+                      ? "partial"
+                      : "unpaid"
+                }
+              />
             </div>
           </div>
 
           {owing > 0 && clientId && (
             <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm text-brand-soft-foreground">
-              {money(owing)} will be recorded as owing for {selectedClient?.name}.
+              {money(owing)} will be recorded as owing for{" "}
+              {selectedClient?.name}.
             </p>
           )}
           {owing > 0 && !clientId && (
@@ -785,23 +1079,43 @@ export default function PosPage() {
       </Modal>
 
       {/* ── Quick add client ── */}
-      <Modal open={quickClientOpen} onCancel={() => setQuickClientOpen(false)} title="Quick add client"
-        footer={null} destroyOnHidden centered width={420}>
-        <Form layout="vertical" onFinish={quickCreateClient} requiredMark={false}
-          initialValues={{ client_type: "normal" }}>
-          <Form.Item label="Name" name="name" rules={[{ required: true, message: "Client name is required" }]}>
+      <Modal
+        open={quickClientOpen}
+        onCancel={() => setQuickClientOpen(false)}
+        title="Quick add client"
+        footer={null}
+        destroyOnHidden
+        centered
+        width={420}
+      >
+        <Form
+          layout="vertical"
+          onFinish={quickCreateClient}
+          requiredMark={false}
+          initialValues={{ client_type: "normal" }}
+        >
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[{ required: true, message: "Client name is required" }]}
+          >
             <Input placeholder="Client name" autoFocus />
           </Form.Item>
           <Form.Item label="Phone" name="phone">
             <Input placeholder="Phone number" />
           </Form.Item>
           <Form.Item label="Type" name="client_type">
-            <Segmented block options={[
-              { label: "Normal", value: "normal" },
-              { label: "Partner (wholesale)", value: "partner" },
-            ]} />
+            <Segmented
+              block
+              options={[
+                { label: "Normal", value: "normal" },
+                { label: "Partner (wholesale)", value: "partner" },
+              ]}
+            />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>Create and select</Button>
+          <Button type="primary" htmlType="submit" block>
+            Create and select
+          </Button>
         </Form>
       </Modal>
 
