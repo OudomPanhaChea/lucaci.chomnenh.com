@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { InputNumber, Input, Modal, Segmented } from "antd";
+import { Input, Modal, Segmented } from "antd";
+import { InputNumber } from "@/components/ui/input-number";
 import { toast } from "react-toastify";
 import api, { apiError } from "@/services/api";
 import { money } from "@/lib/format";

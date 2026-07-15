@@ -15,7 +15,7 @@ import { ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SectionHeader } from "@/components/ui/section-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { money, fmtDate } from "@/lib/format";
+import { money, num, fmtDate } from "@/lib/format";
 import type { Sale } from "@/lib/types";
 
 const REVENUE_CHART: ChartConfig = {
@@ -71,17 +71,17 @@ export default function DashboardPage() {
             )
           }
         />
-        <StatCard title="Invoices today" value={t?.invoice_count ?? 0} icon={ReceiptText} accent="emerald"
+        <StatCard title="Invoices today" value={num(t?.invoice_count)} icon={ReceiptText} accent="emerald"
           hint={`Average ${money(t?.avg_sale)}`} />
-        <StatCard title="Items sold today" value={t?.items_sold ?? 0} icon={Package} accent="amber"
-          hint={`${data?.counts.products ?? 0} products in inventory`} />
+        <StatCard title="Items sold today" value={num(t?.items_sold)} icon={Package} accent="amber"
+          hint={`${num(data?.counts.products)} products in inventory`} />
         <StatCard title="Today's profit" value={money(t?.profit)} icon={TrendingUp} accent="rose"
           hint="Revenue minus tax and cost" />
         <StatCard title="Outstanding" value={money(data?.receivables.total)} icon={HandCoins}
           accent={Number(data?.receivables.total) > 0 ? "rose" : "emerald"}
           hint={
             Number(data?.receivables.invoices) > 0
-              ? `${data?.receivables.invoices} unpaid or partial invoices`
+              ? `${num(data?.receivables.invoices)} unpaid or partial invoices`
               : "All invoices fully paid"
           } />
       </div>
@@ -116,7 +116,7 @@ export default function DashboardPage() {
                   tickFormatter={(v: string) => v.slice(5)} />
                 <YAxis tickLine={false} axisLine={false} width={48} tickMargin={4}
                   tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
-                  tickFormatter={(v: number) => `$${v}`} />
+                  tickFormatter={(v: number) => `$${num(v)}`} />
                 <Tooltip
                   cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
                   content={
@@ -150,7 +150,7 @@ export default function DashboardPage() {
                 <li key={p.id} className="flex items-center justify-between py-2.5">
                   <span className="truncate pr-2 text-sm text-fg">{p.name}</span>
                   <StatusBadge status={p.stock_qty === 0 ? "out" : "low"}
-                    label={p.stock_qty === 0 ? "Out of stock" : `${p.stock_qty} left`} />
+                    label={p.stock_qty === 0 ? "Out of stock" : `${num(p.stock_qty)} left`} />
                 </li>
               ))}
             </ul>

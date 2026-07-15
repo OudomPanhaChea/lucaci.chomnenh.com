@@ -7,6 +7,8 @@ interface StatCardProps {
   icon: LucideIcon;
   hint?: ReactNode;
   accent?: "brand" | "emerald" | "amber" | "rose";
+  /** Extra classes on the card frame (e.g. col-span on responsive grids) */
+  className?: string;
 }
 
 const ACCENTS: Record<string, string> = {
@@ -16,9 +18,9 @@ const ACCENTS: Record<string, string> = {
   rose: "bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
 };
 
-export function StatCard({ title, value, icon: Icon, hint, accent = "brand" }: StatCardProps) {
+export function StatCard({ title, value, icon: Icon, hint, accent = "brand", className }: StatCardProps) {
   return (
-    <div className="rounded-xl border border-line bg-surface-raised p-4 shadow-card">
+    <div className={`rounded-xl border border-line bg-surface-raised p-4 shadow-card ${className ?? ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-fg-muted">{title}</p>

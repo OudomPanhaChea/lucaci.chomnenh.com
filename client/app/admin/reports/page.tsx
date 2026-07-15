@@ -14,7 +14,7 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { ChartTooltipContent, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { money } from "@/lib/format";
+import { money, num } from "@/lib/format";
 
 const { RangePicker } = DatePicker;
 
@@ -22,7 +22,7 @@ interface Summary {
   totals: { invoice_count: number; revenue: number; collected: number; outstanding: number; tax: number; discount: number; profit: number; avg_sale: number; items_sold: number };
   series: { period: string; invoice_count: number; revenue: number; profit: number }[];
   payment_methods: { payment_method: string; invoice_count: number; revenue: number }[];
-  top_products: { name: string; quantity: number; revenue: number }[];
+  top_products: { name: string; qty: number; qty_desc: string; revenue: number }[];
   top_clients: { name: string; invoice_count: number; revenue: number }[];
   group: string;
 }
@@ -112,8 +112,8 @@ export default function ReportsPage() {
           } />
         <StatCard title="Profit" value={money(t?.profit)} icon={TrendingUp} accent="amber"
           hint={`Discounts given ${money(t?.discount)}`} />
-        <StatCard title="Invoices" value={t?.invoice_count ?? 0} icon={ReceiptText} accent="rose"
-          hint={`Average sale ${money(t?.avg_sale)}, ${t?.items_sold ?? 0} items`} />
+        <StatCard title="Invoices" value={num(t?.invoice_count)} icon={ReceiptText} accent="rose"
+          hint={`Average sale ${money(t?.avg_sale)}, ${num(t?.items_sold)} items`} />
       </div>
 
       <div className="mt-6 rounded-xl border border-line bg-surface-raised p-4 shadow-card">
@@ -137,7 +137,7 @@ export default function ReportsPage() {
                 tickFormatter={(v: string) => (data?.group === "day" ? v.slice(5) : v)} />
               <YAxis tickLine={false} axisLine={false} width={54} tickMargin={4}
                 tick={{ fontSize: 11, fill: "var(--fg-subtle)" }}
-                tickFormatter={(v: number) => `$${v}`} />
+                tickFormatter={(v: number) => `$${num(v)}`} />
               <Tooltip
                 cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
                 content={
@@ -184,12 +184,15 @@ export default function ReportsPage() {
           {data?.top_products.length === 0 && <p className="py-6 text-center text-sm text-fg-muted">No data in this range.</p>}
           <ul className="divide-y divide-line">
             {data?.top_products.map((p, i) => (
-              <li key={`${p.name}-${i}`} className="flex items-center justify-between py-2 text-sm">
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="tabular w-5 shrink-0 text-fg-subtle">{i + 1}.</span>
-                  <span className="truncate text-fg">{p.name}</span>
+              <li key={`${p.name}-${i}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="tabular w-5 shrink-0 text-fg-subtle">{i + 1}.</span>
+                    <span className="truncate text-fg">{p.name}</span>
+                  </span>
+                  <span className="tabular ml-7 block truncate text-xs text-fg-subtle">{p.qty_desc}</span>
                 </span>
-                <span className="tabular shrink-0 text-fg-muted">{p.quantity} × <span className="font-medium text-fg">{money(p.revenue)}</span></span>
+                <span className="tabular shrink-0 font-medium text-fg">{money(p.revenue)}</span>
               </li>
             ))}
           </ul>
@@ -205,7 +208,7 @@ export default function ReportsPage() {
                   <span className="tabular w-5 shrink-0 text-fg-subtle">{i + 1}.</span>
                   <span className="truncate text-fg">{c.name}</span>
                 </span>
-                <span className="tabular shrink-0 text-fg-muted">{c.invoice_count} inv · <span className="font-medium text-fg">{money(c.revenue)}</span></span>
+                <span className="tabular shrink-0 text-fg-muted">{num(c.invoice_count)} inv · <span className="font-medium text-fg">{money(c.revenue)}</span></span>
               </li>
             ))}
           </ul>

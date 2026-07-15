@@ -3,7 +3,7 @@ import { Popconfirm, Table, Tag } from "antd";
 import { Boxes, History, PackageOpen, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { money } from "@/lib/format";
+import { money, num } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
 interface ProductTableProps {
@@ -32,17 +32,12 @@ export function ProductTable({
         loading={loading}
         dataSource={products}
         pagination={{ pageSize: 12, showSizeChanger: false }}
-        scroll={{ x: 900 }}
+        scroll={{ x: 1200 }}
         columns={[
-          {
-            title: "#",
-            dataIndex: "display_number",
-            width: 60,
-            render: (n) => <span className="tabular text-fg-subtle">{n}</span>,
-          },
           {
             title: "Product",
             dataIndex: "name",
+            minWidth: 280,
             render: (_, p) => (
               <div className="flex items-center gap-3">
                 {p.image_url ? (
@@ -71,12 +66,20 @@ export function ProductTable({
             title: "Category",
             dataIndex: "category_name",
             width: 130,
-            render: (v) => v || <span className="text-fg-subtle">None</span>,
+            align: "center" as const,
+            render: (v) => v || <span className="text-fg-subtle">—</span>,
+          },
+          {
+            title: "Barcode",
+            dataIndex: "barcode",
+            width: 160,
+            align: "center" as const,
+            render: (v) => v || <span className="text-fg-subtle">—</span>,
           },
           {
             title: "Price",
             dataIndex: "sell_price",
-            width: 120,
+            width: 160,
             align: "right",
             render: (_, p) => (
               <div className="tabular">
@@ -92,9 +95,22 @@ export function ProductTable({
             ),
           },
           {
+            title: "Cost",
+            dataIndex: "cost_price",
+            width: 160,
+            align: "right",
+            render: (_, p) => (
+              <div className="tabular">
+                <span className="font-medium text-fg-subtle">
+                  {money(p.cost_price)}
+                </span>
+              </div>
+            ),
+          },
+          {
             title: "Stock",
             dataIndex: "stock_qty",
-            width: 130,
+            width: 160,
             align: "center",
             sorter: (a, b) =>
               (a.stock_qty ?? Number.MAX_SAFE_INTEGER) -
@@ -102,24 +118,25 @@ export function ProductTable({
             render: (_, p) => {
               if (p.stock_qty === null)
                 return (
-                  <span className="text-xs text-fg-subtle">Not tracked</span>
+                  <span className="text-xs text-fg-subtle">—</span>
                 );
               if (p.stock_qty <= 0)
                 return <StatusBadge status="out" label="Out" />;
               if (p.stock_qty <= p.low_stock_alert)
                 return (
-                  <StatusBadge status="low" label={`${p.stock_qty} low`} />
+                  <StatusBadge status="low" label={`${num(p.stock_qty)} low`} />
                 );
-              // Show the biggest bulk unit the count fits into, e.g. "48 pcs" + "4 × Box of 12"
+              // Show the biggest bulk unit the count fits into, e.g. "48 tubes" + "4 × Box of 12"
               const unit = [...(p.units ?? [])]
                 .filter((u) => u.factor > 1 && p.stock_qty! >= u.factor)
                 .sort((a, b) => b.factor - a.factor)[0];
               return (
                 <div className="tabular">
-                  {p.stock_qty}
+                  {num(p.stock_qty)}{" "}
+                  <span className="text-xs text-fg-muted">{p.base_unit || "pcs"}</span>
                   {unit && (
                     <p className="text-xs text-fg-subtle">
-                      {Math.floor(p.stock_qty / unit.factor)} × {unit.name}
+                      ≈ {num(Math.floor(p.stock_qty / unit.factor))} {unit.name}
                     </p>
                   )}
                 </div>
@@ -128,11 +145,12 @@ export function ProductTable({
           },
           {
             title: "Status",
-            width: 120,
+            width: 150,
+            align: "center" as const,
             render: (_, p) => (
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1 justify-center">
                 <StatusBadge status={p.is_active ? "active" : "inactive"} />
-                {!!p.show_in_menu && <Tag className="!m-0">Menu</Tag>}
+                {!!p.show_in_menu && <Tag className="m-0!">Menu</Tag>}
               </div>
             ),
           },

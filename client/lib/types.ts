@@ -43,6 +43,7 @@ export interface Product {
   discount_pct: number;
   stock_qty: number | null; // null = stock not tracked
   low_stock_alert: number;
+  base_unit: string; // what one stock count means: pcs, tubes, bottles ...
   image_url: string | null;
   description: string | null;
   show_in_menu: 0 | 1;
@@ -93,8 +94,9 @@ export interface SaleItem {
   sale_id: number;
   product_id: number | null;
   name_snapshot: string;
-  unit_name: string | null; // null = piece
+  unit_name: string | null; // null = sold by the base unit
   unit_factor: number;
+  base_unit?: string | null; // joined from products for display
   price: number;
   full_price: number;
   discount_pct: number;
@@ -134,10 +136,88 @@ export interface ClientStatement {
   client: Client;
   sales: Sale[];
   payments: Payment[];
-  // Per-product breakdown of everything bought in the period, by total desc
-  products: { product_id: number | null; name: string; quantity: number; total: number }[];
+  // Per-product breakdown of everything bought in the period, by total desc;
+  // qty_desc lists the units as sold ("1000 Box of 12 + 5 pcs")
+  products: { product_id: number | null; name: string; base_unit?: string | null; qty: number; qty_desc: string; total: number }[];
+  // Partner bonus awards in the period; omitted for cashiers (manager-only data)
+  bonuses?: Bonus[];
   period: { invoice_count: number; total_items: number; purchased: number; paid: number; outstanding: number };
   overall: { outstanding: number; credit_balance: number };
+}
+
+// ── Partner bonuses (record + downloadable paper; no ledger impact) ────────
+export interface BonusItem {
+  id: number;
+  bonus_id: number;
+  sale_id: number | null;
+  invoice_number: string;
+  product_id: number | null;
+  product_name: string;
+  pieces: number;
+  qty_desc?: string | null; // human snapshot: "10 × Box of 8 + 5 tubes"
+  line_total: number;
+  bonus_type: "percent" | "fixed";
+  pct: number | null; // set when bonus_type = percent
+  amount: number;
+}
+
+export interface Bonus {
+  id: number;
+  client_id: number | null;
+  client_name: string;
+  period_from: string;
+  period_to: string;
+  invoice_count: number; // SELECTED fully paid invoices at award time
+  invoice_total: number; // their grand total
+  invoice_numbers: string[]; // snapshot of the selected invoice numbers
+  level1_type: "percent" | "fixed" | null; // null = invoice-total level not awarded
+  level1_pct: number | null; // set when level1_type = percent
+  level1_amount: number;
+  items_amount: number;
+  total_amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  items?: BonusItem[];
+}
+
+// Card row on the bonus list page: partner client + period aggregates
+export interface BonusClientSummary {
+  id: number;
+  display_number: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  paid_invoices: number;
+  paid_total: number;
+  qty: number; // units as sold, never converted to base units
+  last_paid_at: string | null;
+  last_bonus_at: string | null;
+  bonus_total: number;
+  bonus_count: number;
+}
+
+// One product aggregated inside one fully paid invoice (level-2 candidate)
+export interface BonusEligibleItem {
+  sale_id: number;
+  invoice_number: string;
+  created_at: string;
+  product_id: number | null;
+  product_name: string;
+  base_unit: string;
+  qty: number; // units as sold (quick-tick threshold uses this)
+  pieces: number; // base units, kept for the award snapshot
+  qty_desc: string; // units as sold: "10 Box of 8 + 5 tubes"
+  line_total: number;
+}
+
+export interface BonusDetail {
+  client: Client;
+  invoices: { id: number; invoice_number: string; total: number; created_at: string; qty: number }[];
+  items: BonusEligibleItem[];
+  history: Bonus[];
+  period: { invoice_count: number; paid_total: number; qty: number };
 }
 
 export interface Settings {

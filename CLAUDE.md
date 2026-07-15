@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-14 (inventory page componentized, inline category add)
+> Last updated: 2026-07-15 (invoice modal paper print + neutral restyle)
 
 ## 1. What this project is
 
@@ -56,6 +56,7 @@ Server emits to room `admins` (helper `emitToAdmins` in `server/config/socket.js
 - `product:changed` — `{ type: create|update|stock|delete|category, id? }`
 - `client:changed` — `{ type, id }` (also fired when credit/deposits change a client)
 - `settings:changed` — full settings row
+- `bonus:changed` — `{ type: create|delete, id, client_id }` (partner bonus awards)
 
 Client: `services/socket.ts` (single shared socket, token from `/auth/me`), subscribe with
 `hooks/useRealtime.ts` — pages re-fetch on relevant events.
@@ -63,7 +64,8 @@ Client: `services/socket.ts` (single shared socket, token from `/auth/me`), subs
 ## 3. Database (`server/database/schema.sql`)
 
 Tables: `businesses`, `users`, `categories`, `products`, `product_units`, `clients`,
-`sales`, `sale_items`, `stock_movements`, `payments`, `images`, `settings` (one row per business,
+`sales`, `sale_items`, `stock_movements`, `payments`, `bonuses`, `bonus_items`, `images`,
+`settings` (one row per business,
 `UNIQUE(business_id)`; `banner_urls` is a JSON array of up to 4 menu banners).
 Unique keys are per business: `(business_id, email)`, `(business_id, barcode)`,
 `(business_id, name)` on categories, `(business_id, invoice_number)`.
@@ -89,6 +91,9 @@ Key conventions carried over from WisePOS:
   Reports treat revenue as accrual (all non-voided sales) and expose
   `collected`/`outstanding` alongside.
 - **Partner/wholesale (2026-07-11):** `clients.client_type` is `normal|partner`.
+  Since 2026-07-15 every product names its own base unit (`products.base_unit`,
+  default 'pcs': tubes, bottles, ampules ...) used in all displays; "pieces"
+  below means "base units of that product".
   `product_units` holds per-product bulk units ("Box of 12": `factor` pieces per unit,
   own `sell_price`, optional carton `barcode` scannable at POS). Stock stays counted in
   base pieces; a unit line moves `qty × factor` pieces. `sale_items` snapshots
@@ -130,8 +135,10 @@ Key conventions carried over from WisePOS:
 Public: `/login`, `/menu` (read-only product menu for customers — preview only, no ordering;
 gated by `settings.menu_public`).
 Admin (auth): `/admin/dashboard` (realtime), `/admin/pos` (sell + scan + cart + pay + receipt),
-`/admin/inventory` (products + categories + stock), `/admin/clients`, `/admin/invoices`,
-`/admin/reports` (from/to + group day|month|year), `/admin/staff` (owner), `/admin/settings` (owner),
+`/admin/inventory` (products + categories + stock), `/admin/clients` (card grid) +
+`/admin/clients/[id]` (client details: statement tabs + owing statement paper), `/admin/invoices`,
+`/admin/reports` (from/to + group day|month|year), `/admin/bonus` + `/admin/bonus/[id]`
+(owner/admin: partner bonus awards + JPG paper), `/admin/staff` (owner), `/admin/settings` (owner),
 `/admin/profile` (any role: edit own name/email/phone, profile photo, change password;
 `PUT /auth/profile` re-issues the JWT cookie since it embeds name/email; photo via
 `POST/DELETE /auth/avatar` → `users.avatar_url`, files in `server/uploads/avatars/`,
@@ -461,6 +468,242 @@ npm run build
   control or the label htmlFor link breaks. Filter-bar category Select gained
   plain `showSearch`. Verified end to end in headless Edge (recipe persisted in
   `.claude/skills/verify/SKILL.md`).
+
+### Done (2026-07-14, batch 4): partner Bonus page (Accounting)
+- New sidebar item Accounting > Bonus (`/admin/bonus`, owner/admin, Gift icon).
+  Rewards partner clients for fully paid invoices (status `paid` only; FREE
+  `is_bonus` lines excluded everywhere) in a user-picked period. Awards are
+  records + paper only: payments ledger and credit_balance untouched.
+- Flow (v2 after owner UX review, same day): the detail page starts with an
+  **invoice selection** list (every paid invoice in the period, ALL selected
+  by default; unticking removes it from both levels). Two independent,
+  optional levels, each behind its own Switch: **Item quantity bonus** FIRST
+  (used most; lines whose piece count qty x unit_factor per invoice+product
+  reaches a "Min. pieces" limit, grouped under invoice headers, per-row %/$
+  Segmented) and **Invoice total bonus** second (pct of the SELECTED invoices'
+  sum OR a fixed amount, live calculation shown). Sticky summary aside shows
+  invoices selected / item bonus / invoice bonus / total, overlap-with-past-
+  bonus warning, note, save. Decorative accents use brand tokens, not amber
+  (owner asked; amber kept only for semantic warnings).
+- Schema: `bonuses` + `bonus_items` (migration `2026-07-14-bonuses.sql`,
+  applied locally; snapshots client_name/invoice_number/product_name so
+  history survives deletes). `bonuses.invoice_numbers` = JSON array snapshot
+  of the selected invoices; `level1_type` percent|fixed|NULL (NULL = invoice
+  level not awarded; "level1" columns = the invoice-total level even though
+  the UI shows it second). Server `bonuses.controller.js`: GET /bonuses/clients
+  (partner cards + period aggregates + all-time bonus totals), GET
+  /bonuses/clients/:id (invoices, per-invoice item lines, history), POST
+  /bonuses (body has invoice_ids + level1 {type,pct,amount} + items; ALL
+  amounts recomputed server-side from the selected invoices, never trusted;
+  item lines matched by sale_id + product_id <=> + name_snapshot and must
+  belong to a selected invoice), DELETE /bonuses/:id. Manager-gated; emits
+  `bonus:changed`. Smoke-tested via curl: pct + fixed, unknown-invoice reject,
+  empty-selection reject, 0-100 pct reject, delete, aggregates.
+- Bonus paper: `components/bonus/bonus-paper.tsx`, **A4 portrait** (794x1123
+  css px), brand-colored (navy #304A59 header band + total panel, #FFA040
+  accent bar/ticks, hardcoded hex so the export ignores theme), Ref
+  BON-0000 number, item table + invoice-total box listing the selected
+  invoice numbers, thousand-separated local `usd()`, signatures, footer. `bonus-paper-modal.tsx` (width 900) downloads
+  via **html-to-image** `toJpeg` (pixelRatio 2). html2canvas was NOT used on
+  purpose: it can't parse Tailwind 4's oklch colors; html-to-image renders
+  through SVG foreignObject so oklch + self-hosted fonts just work.
+- E2E verified headless (scratchpad verify-bonus.js per the verify skill):
+  select-all default, both levels, summary math cross-checked against the
+  API, save, paper modal, real JPG download, history, cleanup.
+
+### Done (2026-07-14, batch 5): comma thousands separators everywhere
+- `lib/format.ts`: `money()` now outputs `$1,234,567.50` (negatives as `-$x`),
+  new `num()` formats counts/quantities with commas, `khr()` pinned to en-US.
+  Applied to every raw count render: dashboard stat cards + low-stock badges,
+  reports (Y axes, top products/clients, invoice stats), inventory stock column,
+  stock adjust/history, POS stock hints + pcs lines, clients table + statement,
+  receipt + invoice detail quantities. CSV export stays comma-free on purpose.
+- New `components/ui/input-number.tsx` wraps AntD InputNumber with a comma
+  formatter/parser (integer part only, decimals untouched); every page now
+  imports InputNumber from it (same pattern as `ui/button.tsx`).
+
+### Done (2026-07-15): named base units per product + real-unit bonus lines
+- Migration `2026-07-15-base-units.sql` (applied locally, in schema.sql):
+  `products.base_unit` VARCHAR(30) default 'pcs' (the word one stock count
+  means: tubes, bottles, ampules ...) and `bonus_items.qty_desc` VARCHAR(190)
+  (human snapshot like "2 × Box of 8 + 5 ampules"). Stock/sale math is
+  UNCHANGED: stock stays counted in base units, `product_units.factor` and
+  `sale_items.unit_factor` still convert, sales still snapshot unit_name/factor.
+- Server: products CRUD takes `base_unit`; `getSaleWithItems` and the client
+  statement products tab LEFT JOIN products for `base_unit` (soft delete keeps
+  the join stable); bonuses controller aggregates sale_items per invoice +
+  product + unit and returns `qty_desc` + `base_unit` per eligible line, and
+  createBonus recomputes + stores `qty_desc` into bonus_items.
+- Product form: "Units" section = base-unit AutoComplete (free text with
+  suggestions) + relative bulk-unit editor: each row is "1 <name> has <qty> of
+  <base unit | a unit defined above it>" ("1 Case = 4 × Box of 8"), live
+  "= 32 ampules" hint, factor resolved to base units on submit (rows may only
+  reference rows above them, so no cycles; a dangling reference blocks save).
+- Every hardcoded "pcs" now shows the product's base unit: inventory stock
+  column/adjust/history, POS stock toasts + line hints + the cart unit picker's
+  first option, invoice detail, receipt, clients statement products tab.
+- Bonus detail page reworked to recommendation "C": ALL item lines of the
+  selected invoices are listed (no hidden lines) with real-unit quantities
+  ("2 × Box of 8 + 5 ampules = 21 ampules"); "Min. pieces" filter replaced by a
+  quick-tick helper ("Tick lines with at least N" + Apply, counted in base
+  units) that (un)ticks checkboxes without hiding anything. Cross-product
+  aggregate labels say "items" (mixed units); the bonus paper Quantity column
+  prints qty_desc (old rows fall back to the pieces number).
+- Smoke-tested via curl on a second server instance (PORT=5002): base_unit
+  create/update, mixed-unit paid sale carrying base_unit on items, bonus detail
+  qty_desc, bonus save storing qty_desc, delete/void/cleanup. `next build`
+  passes. NOTE: local dev API was running plain `node` (no nodemon), so it
+  serves old code until restarted.
+
+### Done (2026-07-15, batch 2): quantities display as units-as-sold everywhere
+- Owner rule: NEVER show base-unit conversions to the user. A sale of 1000
+  "lo" displays as "1000 lo" (qty_desc format is now "1000 lo + 20 pcs", no
+  "×", no "= N pcs" suffix). Internally stock/oversell math still uses
+  unit_factor; only DISPLAYS changed.
+- Shared helper `server/config/units.js`: `composeQtyDesc(parts, baseUnit)` +
+  `mergeUnitRows(rows, keyOf, sumFields)` (merge per-unit GROUP BY rows into
+  one line per product with a composed qty_desc). Used by bonuses, clients
+  statement products, reports top_products.
+- All count aggregates switched from SUM(quantity*unit_factor) to
+  SUM(quantity): reports items_sold (summary + dashboard), listSales +
+  statement item_count, clients total_items (list + period), bonus clients
+  cards `qty`, bonus detail invoices `qty` / period.qty / item lines `qty`
+  (quick-tick threshold now counts units as sold). Removed the "= N pcs"
+  hints from receipt, invoice detail, and POS cart lines; inventory stock
+  hint reads "≈ 4 Box of 12".
+- Bonus page UX: bulk-helper bar ("Tick lines with at least N" + "Give every
+  ticked line X% Apply"), per-invoice header checkbox ticks/unticks that
+  invoice's lines, whole line label is clickable, ticked rows highlighted
+  brand-soft, "n lines ticked" chip in the section header.
+- Smoke-tested on PORT=5002: bonus detail ("1000 lo"), saved bonus_items
+  qty_desc "1000 lo", reports top_products "1000 lo + 3000 pcs + 1000 box",
+  statement products, dashboard items_sold. `next build` passes.
+
+### Done (2026-07-15, batch 3): bonus detail page tablet/phone pass
+- Owner's staff use tablets/phones, rarely laptops. Below xl the summary aside
+  used to land after everything; now: history section moved OUT of the left
+  column to full width below the grid, and a **floating save bar** (sticky
+  bottom-3, xl:hidden, blur card) keeps the live total + Save reachable while
+  ticking lines (sticky not fixed, so it settles into flow at page end and
+  never covers the sider). Item-line reward controls (Segmented/%input/amount)
+  wrap as one right-aligned group under the name on narrow widths
+  (label flex-[1_1_15rem]); bulk-helper labels stack full-width under sm;
+  inputs/buttons bumped from size=small to default for touch. Stats grid is
+  2-col on phones with "Paid total" spanning both (StatCard gained an optional
+  `className` prop for such grid spans + `sm:order-*` reorder).
+- Owner edits (respect these): invoice rows no longer auto-select on load
+  (the select-all-by-default effect was removed) and the per-invoice
+  "N items" span in the selection list is commented out.
+- Verified with headless Edge screenshots at 820x1180 and 390x844
+  (scratchpad verify-bonus-responsive.js per the verify skill): no horizontal
+  scroll, sticky bar pins mid-scroll, quick-tick + bulk 2% flows work.
+  Local API on 5001 now runs under nodemon (old plain-node process replaced).
+
+### Done (2026-07-15, batch 4): minimal bonus paper + Bonuses tab in client drawer
+- Bonus paper redesigned clean/minimal (it is handed to customers): white sheet,
+  no navy header band or navy total panel; header = logo + business info left,
+  "BONUS AWARD" + ref/date right, thin orange+navy rule; ONE rewards table
+  (Description / Invoice / Quantity / Basis / Reward) holding both item lines
+  and the invoice-total reward row (selected invoice numbers as a small mono
+  line under the table); right-aligned totals block (subtotals only when both
+  levels exist) with navy top border + total; note as plain "Note:" paragraph.
+  Same A4 794px frame, hardcoded hex, signatures/footer unchanged.
+- Client statement (`clientStatement`) now returns `bonuses` (with items +
+  parsed invoice_numbers, same created_at range filter, limit 50) but ONLY for
+  non-cashier roles, matching the manager-gated /bonuses routes. Clients page
+  drawer gained a "Bonuses" tab (shown to managers when the client is a partner
+  or has past awards): period, invoice/item-line counts, awarded-by, amount,
+  and a Paper button reusing BonusPaperModal; drawer re-fetches on
+  `bonus:changed`. Verified headless (scratchpad verify-bonus-paper*.js).
+
+### Done (2026-07-15, batch 5): clients card grid + details page + owing statement paper
+- Clients page redesigned as a card grid (same card shape as the bonus page):
+  avatar, partner tag, top-3 trophy rank chip, Purchases/Spent/Owing stat
+  cells, prepaid chip + last purchase + edit/delete in the footer; search +
+  type Segmented kept, client-side Pagination (12/page). Cards navigate to the
+  new **client details page** `/admin/clients/[id]` which replaces the
+  statement drawer 1:1 (contact card + owing/prepaid position in a left aside,
+  range picker + period summary + the four tabs in a main card; back link,
+  Edit + Add deposit in the header). No server changes.
+- **Owing statement paper**: in the details page purchase tab, invoices with a
+  balance (partial/unpaid, not voided) get checkboxes + a select-all bar; the
+  selection bar shows "n invoices · $X owing" and a button that opens an A4
+  paper (title OWING STATEMENT) detailing each invoice separately (item lines
+  with units-as-sold quantities, Invoice total / Paid / Balance due) then a
+  grand Total purchased / Total paid / TOTAL OWING block + KHR approx,
+  signatures Prepared by (current user) / Acknowledged by (client). Data =
+  parallel GET /sales/:id for the selected ids (no new endpoint).
+- **Shared A4 paper primitives** extracted to `components/paper/`: `paper.tsx`
+  (PaperSheet frame, PaperHeader with logo+title+ref, PaperSignatures,
+  PaperFooter, paperSlug) and `paper-modal.tsx` (generic preview +
+  html-to-image JPG download modal + `usePaperSettings`). bonus-paper[-modal]
+  refactored onto them (bonus paper's local `usd()` dropped, `money()` has had
+  thousands separators since batch "commas everywhere"). New papers should
+  build on these primitives.
+- Clients split into `components/clients/`: `client-card`, `client-avatar`
+  (partner/normal circle, reused on card + details), `client-form-modal`
+  (add/edit, shared by list + details), `deposit-modal`, `purchase-history`
+  (owns the owing-selection state), `products-rank`, `payments-list`,
+  `bonuses-list`, `statement-paper[-modal]`.
+- E2E verified headless per the verify skill (scratchpad verify-clients.js):
+  grid, card → details, select-all owing (2 invoices), paper math
+  cross-checked ($8.55+$4.70=$13.25), real JPG download, edit modal, fixture
+  cleanup. `next build` passes (19 routes).
+
+### Done (2026-07-15, batch 6): multi-page A4 papers + statement select-all + clients UX pass
+- **Papers paginate onto real A4 sheets** instead of growing one tall page. New
+  `components/paper/paginated-paper.tsx`: content is a list of self-contained
+  blocks (an invoice, a bonus item row) whose true heights are measured in a
+  hidden same-width pass (overflow-hidden wrappers so child margins count;
+  re-measured after `document.fonts.ready`), then dealt onto pages. Page 1
+  gets `header`, later pages a slim `PaperContinuation` header ("TITLE
+  (continued) · name · Page x of y", in paper.tsx); `tail` (totals/note) and
+  `bottom` (signatures+footer, mt-auto) always land on the last page; non-last
+  pages end with a "Continued on next page" hint whose height is part of the
+  block budget (forgetting it overflowed A4 by ~20px, caught in verification).
+  `PaperSheet` now marks the exportable node with `data-paper-page` (shadow on
+  a wrapper so it never enters the JPG); PaperModal downloads one JPG per
+  sheet (`name-p1.jpg`, `-p2` ... + a "Downloaded n pages" toast) and stacks
+  sheets in the preview. Both papers rebuilt on it; the bonus items table
+  became fixed-template grid rows so it can break between lines, with the
+  column headings re-printed after a break (only when the page starts with
+  item rows).
+- **Statement paper covers any invoices, not just owing**: purchase-history
+  checkboxes now on every non-voided invoice, Select all + hint bar, button
+  renamed "Statement paper"; the paper titles itself OWING STATEMENT when
+  every selected invoice still owes, ACCOUNT STATEMENT otherwise (right-side
+  label follows); paid invoices print with Balance due $0.00. Pay button and
+  rose owing hints still only on owing rows.
+- **Clients UX pass**: cards are keyboard-operable (role=link, tabIndex,
+  Enter navigates, focus-visible ring) with a hover shadow lift; details page
+  aside is sticky on xl, the owing/prepaid position cards moved ABOVE the
+  contact card (phones see money first), and tab labels show counts
+  ("Purchase history (9)").
+- E2E verified headless per the verify skill (scratchpad verify-paper-pages.js
+  + verify-paper-jpg.js): 9-invoice statement → 4 sheets all exactly 1123px,
+  4 numbered JPG downloads, totals only on the last sheet, owing-only reprint
+  titled OWING STATEMENT; 21-line bonus → 2 sheets with repeated column heads
+  and hand-checked math ($4.10); card Enter-navigation; real exported JPGs
+  eyeballed (Khmer names fine). `next build` passes.
+
+### Done (2026-07-15, batch 7): invoice modal paper print + neutral restyle
+- `InvoiceDetailModal` gained an optional `onPaper(saleId)` prop: when set, the
+  footer button reads "Print paper" and hands the sale id up instead of
+  `window.print()` (hidden `<Receipt>` not rendered then). The client details
+  page passes it and opens the existing `StatementPaperModal` with just that
+  invoice; the invoices page still prints the thermal receipt (walk-in sales
+  have no client for a statement). Paper button hidden on voided invoices
+  (statement paper excludes voided by design).
+- Modal restyled color-light: the three emerald/amber/rose settlement banners
+  collapsed into ONE neutral strip (border-line + surface-sunken, icon + text;
+  only the owed amount is rose, Receive payment button inline); FREE pill and
+  discount pct neutral; section headings unified as small uppercase fg-subtle
+  labels; money summary reordered (invoice math → Total+KHR → divider → Paid /
+  Balance due → "Cash received X · change Y" footnote); Paid line and refund
+  amounts no longer colored (rose reserved for balance due). Verified headless
+  per the verify skill (scratchpad verify-invoice-paper.js): details page shows
+  Print paper → OWING STATEMENT paper + download, invoices page keeps Print
+  receipt, voided modal renders the neutral strip. `next build` passes.
 
 ### Pending / decisions to revisit
 - Khmer i18n intentionally skipped in v1.

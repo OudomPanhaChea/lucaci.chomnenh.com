@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Form, Input, InputNumber, Popconfirm, Switch } from "antd";
+import { Form, Input, Popconfirm, Switch } from "antd";
+import { InputNumber } from "@/components/ui/input-number";
 import { Button } from "@/components/ui/button";
 import { ImageDropzone, type ImageDropzoneHandle } from "@/components/ui/image-dropzone";
 import { toast } from "react-toastify";

@@ -1,6 +1,7 @@
 import pool from "../config/db.js";
 import { BUSINESS_ID } from "../config/business.js";
 import { emitToAdmins } from "../config/socket.js";
+import { mergeUnitRows } from "../config/units.js";
 
 export async function listClients(req, res) {
   const { search } = req.query;
@@ -18,7 +19,7 @@ export async function listClients(req, res) {
             COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.amount_paid END), 0) AS total_spent,
             COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.total - s.amount_paid END), 0) AS outstanding,
             MAX(s.created_at)                                        AS last_purchase_at,
-            (SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0)
+            (SELECT COALESCE(SUM(si.quantity), 0)
                FROM sale_items si JOIN sales s2 ON s2.id = si.sale_id
               WHERE s2.client_id = c.id AND s2.status <> 'voided')   AS total_items
      FROM clients c
@@ -88,7 +89,7 @@ export async function clientStatement(req, res) {
 
   const [sales] = await pool.query(
     `SELECT id, invoice_number, total, amount_paid, payment_method, status, created_at,
-            (SELECT SUM(quantity * unit_factor) FROM sale_items si WHERE si.sale_id = sales.id) AS item_count
+            (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = sales.id) AS item_count
      FROM sales WHERE client_id = ? AND business_id = ?${rangeSql}
      ORDER BY id DESC LIMIT 200`,
     [id, BUSINESS_ID, ...rangeParams]
@@ -110,16 +111,25 @@ export async function clientStatement(req, res) {
   const itemsRangeSql = rangeSql.replaceAll("created_at", "s.created_at");
   // What this client buys: every product across the period's non-voided
   // invoices, in base pieces, ranked by the amount spent on it.
-  const [products] = await pool.query(
-    `SELECT si.product_id, si.name_snapshot AS name,
-            SUM(si.quantity * si.unit_factor) AS quantity,
+  // Quantities stay in the units the client actually bought ("1000 Box of 12
+  // + 5 pcs"), never converted to base units: per-unit rows merged per product.
+  const [productUnitRows] = await pool.query(
+    `SELECT si.product_id, si.name_snapshot AS name, si.unit_name,
+            COALESCE(MAX(p.base_unit), 'pcs') AS base_unit,
+            SUM(si.quantity)                  AS qty,
             SUM(si.line_total)                AS total
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     LEFT JOIN products p ON p.id = si.product_id
      WHERE s.client_id = ? AND s.business_id = ? AND s.status <> 'voided'${itemsRangeSql}
-     GROUP BY si.product_id, si.name_snapshot
-     ORDER BY total DESC LIMIT 100`,
+     GROUP BY si.product_id, si.name_snapshot, si.unit_name
+     ORDER BY total DESC LIMIT 300`,
     [id, BUSINESS_ID, ...rangeParams]
   );
+  const products = mergeUnitRows(
+    productUnitRows,
+    (r) => `${r.product_id ?? "x"}|${r.name}`,
+    ["total"]
+  ).sort((a, b) => b.total - a.total).slice(0, 100);
 
   const [[period]] = await pool.query(
     `SELECT COUNT(CASE WHEN status <> 'voided' THEN 1 END) AS invoice_count,
@@ -129,7 +139,7 @@ export async function clientStatement(req, res) {
     [id, BUSINESS_ID, ...rangeParams]
   );
   const [[{ total_items }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0) AS total_items
+    `SELECT COALESCE(SUM(si.quantity), 0) AS total_items
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
      WHERE s.client_id = ? AND s.business_id = ? AND s.status <> 'voided'${itemsRangeSql}`,
     [id, BUSINESS_ID, ...rangeParams]
@@ -140,8 +150,30 @@ export async function clientStatement(req, res) {
     [id, BUSINESS_ID]
   );
 
+  // Partner bonus awards in the period (records only, no ledger impact).
+  // Hidden from cashiers to match the manager-gated /bonuses routes.
+  let bonuses = [];
+  if (req.user.role !== "cashier") {
+    [bonuses] = await pool.query(
+      `SELECT * FROM bonuses WHERE client_id = ? AND business_id = ?${rangeSql}
+       ORDER BY id DESC LIMIT 50`,
+      [id, BUSINESS_ID, ...rangeParams]
+    );
+    if (bonuses.length) {
+      const [bonusItems] = await pool.query(
+        "SELECT * FROM bonus_items WHERE bonus_id IN (?) ORDER BY id",
+        [bonuses.map((b) => b.id)]
+      );
+      const byBonus = new Map(bonuses.map((b) => [b.id, (b.items = [])]));
+      for (const it of bonusItems) byBonus.get(it.bonus_id)?.push(it);
+    }
+    for (const b of bonuses) {
+      try { b.invoice_numbers = JSON.parse(b.invoice_numbers) || []; } catch { b.invoice_numbers = []; }
+    }
+  }
+
   res.json({
-    client, sales, payments, products,
+    client, sales, payments, products, bonuses,
     period: {
       ...period,
       total_items: Number(total_items),

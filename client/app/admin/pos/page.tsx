@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   Input,
-  InputNumber,
   Modal,
   Select,
   Segmented,
@@ -11,6 +10,7 @@ import {
   Switch,
 } from "antd";
 import { Button } from "@/components/ui/button";
+import { InputNumber } from "@/components/ui/input-number";
 import { toast } from "react-toastify";
 import {
   ScanBarcode,
@@ -37,7 +37,7 @@ import BarcodeScanner from "@/components/barcode-scanner";
 import Receipt from "@/components/receipt";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { money, khr, unitPrice } from "@/lib/format";
+import { money, khr, num, unitPrice } from "@/lib/format";
 import type {
   Product,
   ProductUnit,
@@ -155,7 +155,7 @@ export default function PosPage() {
           if (used + (unit?.factor ?? 1) > product.stock_qty) {
             playScanError();
             toast.warn(
-              `Only ${product.stock_qty} pcs in stock for "${product.name}"`,
+              `Only ${num(product.stock_qty)} ${product.base_unit || "pcs"} in stock for "${product.name}"`,
             );
             return prev;
           }
@@ -490,7 +490,7 @@ export default function PosPage() {
                         </span>
                         {p.stock_qty !== null && (
                           <span className="tabular text-xs text-fg-subtle">
-                            {p.stock_qty} left
+                            {num(p.stock_qty)} left
                           </span>
                         )}
                       </div>
@@ -609,7 +609,7 @@ export default function PosPage() {
                           value={l.unit?.id ?? 0}
                           onChange={(v) => changeUnit(key, v)}
                           options={[
-                            { value: 0, label: "Piece" },
+                            { value: 0, label: l.product.base_unit || "pcs" },
                             ...(l.product.units ?? []).map((u) => ({
                               value: u.id,
                               label: u.name,
@@ -628,7 +628,7 @@ export default function PosPage() {
                           step={0.25}
                           prefix="$"
                           className="!w-24"
-                          title="Line price, editable for negotiated deals. Clear it to return to the list price"
+                          title="Line price, editable for negotiated deals"
                           status={negotiated ? "warning" : undefined}
                           value={price}
                           onChange={(v) =>
@@ -650,7 +650,7 @@ export default function PosPage() {
                           min={0}
                           controls={false}
                           aria-label="Quantity"
-                          className="!w-12 [&_input]:!text-center"
+                          className="min-w-12! py-0.5! [&_input]:text-center!"
                           value={l.quantity}
                           onChange={(v) => {
                             if (v !== null) setQty(key, Number(v));
@@ -680,7 +680,6 @@ export default function PosPage() {
                           {money(price * l.quantity)}
                         </>
                       )}
-                      {l.unit && ` (${l.quantity * l.unit.factor} pcs)`}
                     </p>
                   </li>
                 );

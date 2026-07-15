@@ -1,21 +1,40 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, PackageOpen, Phone, MapPin, Store, Eye, ChevronLeft, ChevronRight,
+  Search,
+  PackageOpen,
+  Phone,
+  MapPin,
+  Store,
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  X,
 } from "lucide-react";
 import axios from "axios";
 import ThemeToggle from "@/components/theme/theme-toggle";
 import { money, khr, unitPrice } from "@/lib/format";
+import Image from "next/image";
 
 interface MenuData {
   business: {
-    name: string; logo_url: string | null; banners: string[]; phone: string | null;
-    address: string | null; currency: string; exchange_rate: number;
+    name: string;
+    logo_url: string | null;
+    banners: string[];
+    phone: string | null;
+    address: string | null;
+    currency: string;
+    exchange_rate: number;
   };
   categories: { id: number; name: string }[];
   products: {
-    id: number; name: string; category_id: number | null;
-    sell_price: number; discount_pct: number; image_url: string | null; description: string | null;
+    id: number;
+    name: string;
+    category_id: number | null;
+    sell_price: number;
+    discount_pct: number;
+    image_url: string | null;
+    description: string | null;
   }[];
 }
 
@@ -32,7 +51,7 @@ function BannerCarousel({ images }: { images: string[] }) {
 
   const go = useCallback(
     (i: number) => setIndex(((i % count) + count) % count),
-    [count]
+    [count],
   );
 
   // Auto-advance, paused while the customer holds a slide; depending on
@@ -61,7 +80,9 @@ function BannerCarousel({ images }: { images: string[] }) {
     setDrag(null);
   };
 
-  const dragPct = drag ? (drag.dx / (frameRef.current?.clientWidth || 1)) * 100 : 0;
+  const dragPct = drag
+    ? (drag.dx / (frameRef.current?.clientWidth || 1)) * 100
+    : 0;
 
   return (
     <div className="relative mb-5">
@@ -78,12 +99,19 @@ function BannerCarousel({ images }: { images: string[] }) {
       >
         <div
           className={`flex ${drag ? "" : "transition-transform duration-500 ease-out"}`}
-          style={{ transform: `translateX(calc(${dragPct}% - ${index * 100}%))` }}
+          style={{
+            transform: `translateX(calc(${dragPct}% - ${index * 100}%))`,
+          }}
         >
           {images.map((src) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={src} src={src} alt="Promotion banner" draggable={false}
-              className="aspect-[3/1] w-full flex-none select-none object-cover" />
+            <img
+              key={src}
+              src={src}
+              alt="Promotion banner"
+              draggable={false}
+              className="aspect-[3/1] w-full flex-none select-none object-cover"
+            />
           ))}
         </div>
       </div>
@@ -114,7 +142,9 @@ function BannerCarousel({ images }: { images: string[] }) {
                 aria-label={`Go to banner ${i + 1}`}
                 onClick={() => go(i)}
                 className={`h-1.5 cursor-pointer rounded-full transition-all duration-200 ${
-                  i === index ? "w-5 bg-white" : "w-1.5 bg-white/60 hover:bg-white/80"
+                  i === index
+                    ? "w-5 bg-white"
+                    : "w-1.5 bg-white/60 hover:bg-white/80"
                 }`}
               />
             ))}
@@ -125,15 +155,25 @@ function BannerCarousel({ images }: { images: string[] }) {
   );
 }
 
-function ProductCard({ product, exchangeRate }: { product: MenuProduct; exchangeRate: number }) {
+function ProductCard({
+  product,
+  exchangeRate,
+}: {
+  product: MenuProduct;
+  exchangeRate: number;
+}) {
   const price = unitPrice(product.sell_price, product.discount_pct);
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-surface-raised shadow-card">
       <div className="relative aspect-square w-full bg-surface-sunken">
         {product.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={product.image_url} alt={product.name} loading="lazy"
-            className="h-full w-full object-cover" />
+          <img
+            src={product.image_url}
+            alt={product.name}
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
         ) : (
           <div className="flex h-full items-center justify-center">
             <PackageOpen className="h-8 w-8 text-fg-subtle" />
@@ -148,17 +188,23 @@ function ProductCard({ product, exchangeRate }: { product: MenuProduct; exchange
       <div className="p-3">
         <p className="truncate font-medium text-fg">{product.name}</p>
         {product.description && (
-          <p className="mt-0.5 line-clamp-2 text-xs text-fg-muted">{product.description}</p>
+          <p className="mt-0.5 line-clamp-2 text-xs text-fg-muted">
+            {product.description}
+          </p>
         )}
         <div className="mt-1.5 flex items-baseline gap-2">
           <span className="tabular font-semibold text-brand dark:text-brand-soft-foreground">
             {money(price)}
           </span>
           {product.discount_pct > 0 && (
-            <s className="tabular text-xs text-fg-subtle">{money(product.sell_price)}</s>
+            <s className="tabular text-xs text-fg-subtle">
+              {money(product.sell_price)}
+            </s>
           )}
         </div>
-        <p className="tabular text-xs text-fg-subtle">{khr(price, exchangeRate)}</p>
+        <p className="tabular text-xs text-fg-subtle">
+          {khr(price, exchangeRate)}
+        </p>
       </div>
     </div>
   );
@@ -175,7 +221,8 @@ export default function MenuPage() {
   const [categoryId, setCategoryId] = useState<number | null>(null);
 
   useEffect(() => {
-    axios.get("/api/public/menu")
+    axios
+      .get("/api/public/menu")
       .then(({ data }) => setData(data))
       .catch(() => setError(true));
   }, []);
@@ -186,7 +233,9 @@ export default function MenuPage() {
     return data.products.filter(
       (p) =>
         (!categoryId || p.category_id === categoryId) &&
-        (!q || p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
+        (!q ||
+          p.name.toLowerCase().includes(q) ||
+          p.description?.toLowerCase().includes(q)),
     );
   }, [data, search, categoryId]);
 
@@ -208,7 +257,9 @@ export default function MenuPage() {
       name: c.name,
       products: data.products.filter((p) => p.category_id === c.id),
     }));
-    const other = data.products.filter((p) => !p.category_id || !catIds.has(p.category_id));
+    const other = data.products.filter(
+      (p) => !p.category_id || !catIds.has(p.category_id),
+    );
     if (other.length) groups.push({ id: 0, name: "Other", products: other });
     return groups.filter((g) => g.products.length > 0);
   }, [data, categories]);
@@ -218,7 +269,9 @@ export default function MenuPage() {
       <div className="flex min-h-screen flex-col items-center justify-center bg-surface p-6 text-center">
         <Store className="h-10 w-10 text-fg-subtle" />
         <h1 className="mt-3 text-lg font-semibold text-fg">Menu unavailable</h1>
-        <p className="mt-1 text-sm text-fg-muted">This menu is currently not public. Please check back later.</p>
+        <p className="mt-1 text-sm text-fg-muted">
+          This menu is currently not public. Please check back later.
+        </p>
       </div>
     );
   }
@@ -230,11 +283,15 @@ export default function MenuPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={data?.business.logo_url || "/images/chomnenh-mark.png"}
+            <img
+              src={data?.business.logo_url || "/images/chomnenh-mark.png"}
               alt={data?.business.name ?? "Chomnenh"}
-              className="h-9 w-9 shrink-0 rounded-lg bg-white object-cover" />
+              className="h-9 w-9 shrink-0 rounded-lg bg-white object-cover"
+            />
             <div className="min-w-0">
-              <h1 className="truncate font-semibold text-fg">{data?.business.name ?? "Menu"}</h1>
+              <h1 className="truncate font-semibold text-fg">
+                {data?.business.name ?? "Menu"}
+              </h1>
               <p className="flex items-center gap-1 text-xs text-fg-subtle">
                 <Eye className="h-3 w-3" /> Menu preview
               </p>
@@ -266,20 +323,22 @@ export default function MenuPage() {
         {/* Category chips */}
         <div className="no-scrollbar sticky top-16 z-20 -mx-4 mb-4 overflow-x-auto bg-surface px-4 py-2">
           <div className="flex gap-1.5">
-            {[{ id: null as number | null, name: "All" }, ...categories].map((c) => (
-              <button
-                key={c.id ?? "all"}
-                type="button"
-                onClick={() => setCategoryId(c.id)}
-                className={`shrink-0 cursor-pointer rounded-full border px-3.5 py-1.5 text-sm transition-colors duration-200 ${
-                  categoryId === c.id
-                    ? "border-brand bg-brand text-brand-foreground"
-                    : "border-line bg-surface-raised text-fg-muted hover:border-line-strong hover:text-fg"
-                }`}
-              >
-                {c.name}
-              </button>
-            ))}
+            {[{ id: null as number | null, name: "All" }, ...categories].map(
+              (c) => (
+                <button
+                  key={c.id ?? "all"}
+                  type="button"
+                  onClick={() => setCategoryId(c.id)}
+                  className={`shrink-0 cursor-pointer rounded-full border px-3.5 py-1.5 text-sm transition-colors duration-200 ${
+                    categoryId === c.id
+                      ? "border-brand bg-brand text-brand-foreground"
+                      : "border-line bg-surface-raised text-fg-muted hover:border-line-strong hover:text-fg"
+                  }`}
+                >
+                  {c.name}
+                </button>
+              ),
+            )}
           </div>
         </div>
 
@@ -287,7 +346,10 @@ export default function MenuPage() {
         {!data ? (
           <div className={GRID}>
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="animate-pulse overflow-hidden rounded-xl border border-line bg-surface-raised">
+              <div
+                key={i}
+                className="animate-pulse overflow-hidden rounded-xl border border-line bg-surface-raised"
+              >
                 <div className="aspect-square bg-surface-sunken" />
                 <div className="space-y-2 p-3">
                   <div className="h-3.5 w-3/4 rounded bg-surface-sunken" />
@@ -307,13 +369,18 @@ export default function MenuPage() {
               <div className="mb-3 flex items-center gap-3">
                 <h2 className="text-base font-semibold text-fg">{g.name}</h2>
                 <span className="shrink-0 text-xs text-fg-subtle">
-                  {g.products.length} {g.products.length === 1 ? "item" : "items"}
+                  {g.products.length}{" "}
+                  {g.products.length === 1 ? "item" : "items"}
                 </span>
                 <span className="h-px flex-1 bg-line" aria-hidden />
               </div>
               <div className={GRID}>
                 {g.products.map((p) => (
-                  <ProductCard key={p.id} product={p} exchangeRate={data.business.exchange_rate} />
+                  <ProductCard
+                    key={p.id}
+                    product={p}
+                    exchangeRate={data.business.exchange_rate}
+                  />
                 ))}
               </div>
             </section>
@@ -321,7 +388,11 @@ export default function MenuPage() {
         ) : (
           <div className={GRID}>
             {filtered.map((p) => (
-              <ProductCard key={p.id} product={p} exchangeRate={data.business.exchange_rate} />
+              <ProductCard
+                key={p.id}
+                product={p}
+                exchangeRate={data.business.exchange_rate}
+              />
             ))}
           </div>
         )}
@@ -330,14 +401,30 @@ export default function MenuPage() {
         {data && (
           <footer className="mt-14 border-t border-line pt-8 text-center text-sm text-fg-muted">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={data.business.logo_url || "/images/chomnenh-mark.png"}
-              alt={data.business.name}
-              className="mx-auto h-12 w-12 rounded-xl bg-white object-cover shadow-card" />
-            <p className="mt-2.5 font-semibold text-fg">{data.business.name}</p>
+            <div className="flex items-center justify-center gap-2">
+              {data.business.logo_url && (
+                <div className="flex items-center justify-center gap-2">
+                  <img
+                    src={data.business.logo_url}
+                    alt={data.business.name}
+                    className="h-10"
+                  />
+                  <X size={14} strokeWidth={2} className="text-fg-subtle"/>
+                </div>
+              )}
+              <img
+                src={"/images/chomnenh-logo.png"}
+                alt={data.business.name}
+                className="h-8"
+              />
+            </div>
+            <p className="mt-2.5 font-semibold text-fg/30">By RCX Digital</p>
             <div className="mt-2 flex flex-col items-center gap-1.5">
               {data.business.phone && (
-                <a href={`tel:${data.business.phone}`}
-                  className="flex items-center gap-2 transition-colors duration-200 hover:text-fg">
+                <a
+                  href={`tel:${data.business.phone}`}
+                  className="flex items-center gap-2 transition-colors duration-200 hover:text-fg"
+                >
                   <Phone className="h-3.5 w-3.5" /> {data.business.phone}
                 </a>
               )}

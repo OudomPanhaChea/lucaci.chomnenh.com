@@ -1,7 +1,7 @@
 "use client";
 import { Fragment } from "react";
 import type { Sale, Settings } from "@/lib/types";
-import { money, khr, fmtDate } from "@/lib/format";
+import { money, khr, num, fmtDate } from "@/lib/format";
 
 // 80mm receipt. Rendered inside a hidden container; @media print rules in
 // globals.css make only #print-receipt visible when window.print() runs.
@@ -38,10 +38,9 @@ export default function Receipt({ sale, settings }: { sale: Sale; settings: Sett
                 </td>
               </tr>
               <tr>
-                <td className="align-top">{it.quantity}</td>
+                <td className="align-top">{num(it.quantity)}</td>
                 <td className="align-top">
-                  {it.unit_name ?? "Piece"}
-                  {it.unit_factor > 1 ? <><br />= {it.quantity * it.unit_factor} pcs</> : null}
+                  {it.unit_name ?? it.base_unit ?? "pcs"}
                 </td>
                 <td className="whitespace-nowrap text-right align-top">{it.is_bonus ? "FREE" : money(it.price)}</td>
                 <td className="whitespace-nowrap text-right align-top">{it.is_bonus ? "FREE" : money(it.line_total)}</td>

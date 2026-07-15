@@ -1,8 +1,10 @@
 "use client";
 import { useEffect } from "react";
-import { Form, Input, InputNumber, Modal, Segmented } from "antd";
+import { Form, Input, Modal, Segmented } from "antd";
+import { InputNumber } from "@/components/ui/input-number";
 import { toast } from "react-toastify";
 import api, { apiError } from "@/services/api";
+import { num } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
 interface StockAdjustModalProps {
@@ -54,7 +56,7 @@ export function StockAdjustModal({
       <div className="mb-4 mt-2 rounded-lg bg-surface-sunken p-3 text-center">
         <p className="text-xs text-fg-subtle">Current stock</p>
         <p className="tabular text-2xl font-semibold text-fg">
-          {product?.stock_qty ?? 0} pcs
+          {num(product?.stock_qty)} {product?.base_unit || "pcs"}
         </p>
       </div>
       <Form form={form} layout="vertical" requiredMark={false}>
@@ -68,7 +70,7 @@ export function StockAdjustModal({
           />
         </Form.Item>
         <Form.Item
-          label="Quantity"
+          label={`Quantity (${product?.base_unit || "pcs"})`}
           name="qty"
           rules={[{ required: true, message: "Quantity required" }]}
         >
@@ -91,7 +93,9 @@ export function StockAdjustModal({
             ) : (
               <p className="text-sm text-fg-muted">
                 After applying:{" "}
-                <span className="tabular font-medium text-fg">{next} pcs</span>
+                <span className="tabular font-medium text-fg">
+                  {num(next)} {product.base_unit || "pcs"}
+                </span>
               </p>
             );
           }}

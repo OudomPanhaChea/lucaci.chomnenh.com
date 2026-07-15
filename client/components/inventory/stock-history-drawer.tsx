@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Drawer } from "antd";
 import api from "@/services/api";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, num } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
 interface StockHistoryDrawerProps {
@@ -63,7 +63,10 @@ export function StockHistoryDrawer({
               className={`tabular font-medium ${Number(m.change_qty) > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
             >
               {Number(m.change_qty) > 0 ? "+" : ""}
-              {String(m.change_qty)}
+              {num(Number(m.change_qty))}{" "}
+              <span className="text-xs font-normal text-fg-subtle">
+                {product?.base_unit || "pcs"}
+              </span>
             </span>
           </li>
         ))}

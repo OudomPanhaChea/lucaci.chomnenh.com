@@ -7,7 +7,7 @@ import { useRealtime } from "@/hooks/useRealtime";
 import { SectionHeader } from "@/components/ui/section-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import InvoiceDetailModal from "@/components/invoice-detail-modal";
-import { money, fmtDate } from "@/lib/format";
+import { money, fmtDate, num } from "@/lib/format";
 import type { Sale } from "@/lib/types";
 
 const { RangePicker } = DatePicker;
@@ -77,25 +77,25 @@ export default function InvoicesPage() {
           rowKey="id"
           loading={loading}
           dataSource={rows}
-          scroll={{ x: 960 }}
+          scroll={{ x: 1200 }}
           pagination={{
             current: page, total, pageSize: 15, showSizeChanger: false,
             onChange: setPage,
           }}
           onRow={(s) => ({ onClick: () => setDetailId(s.id), className: "cursor-pointer" })}
           columns={[
-            { title: "Invoice", dataIndex: "invoice_number", width: 170,
+            { title: "Invoice", dataIndex: "invoice_number", width: 180,
               render: (v) => <span className="font-mono text-xs text-fg">{v}</span> },
             { title: "Date", dataIndex: "created_at", width: 150,
               render: (v) => <span className="text-fg-muted">{fmtDate(v)}</span> },
             { title: "Client", dataIndex: "client_name", render: (v) => v || <span className="text-fg-subtle">Walk-in</span> },
             { title: "Cashier", dataIndex: "cashier_name", width: 120, render: (v) => <span className="text-fg-muted">{v}</span> },
-            { title: "Items", dataIndex: "item_count", width: 80, align: "center",
-              render: (v) => <span className="tabular">{v}</span> },
+            { title: "Items", dataIndex: "item_count", width: 120, align: "center",
+              render: (v) => <span className="tabular">{num(v)}</span> },
             { title: "Payment", dataIndex: "payment_method", width: 100,
               render: (v) => <StatusBadge status={v} /> },
             { title: "Status", dataIndex: "status", width: 100, render: (v) => <StatusBadge status={v} /> },
-            { title: "Total", dataIndex: "total", width: 110, align: "right",
+            { title: "Total", dataIndex: "total", width: 160, align: "right",
               render: (v) => <span className="tabular font-medium">{money(v)}</span> },
             { title: "Balance", key: "balance", width: 100, align: "right",
               render: (_, s) => {

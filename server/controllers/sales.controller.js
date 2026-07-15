@@ -88,7 +88,7 @@ export async function createSale(req, res) {
         if (remaining.get(p.id) < pieces) {
           await conn.rollback();
           return res.status(409).json({
-            message: `Not enough stock for "${p.name}" (${remaining.get(p.id)} pcs left, needs ${pieces})`,
+            message: `Not enough stock for "${p.name}" (${remaining.get(p.id)} ${p.base_unit || "pcs"} left, needs ${pieces})`,
           });
         }
         remaining.set(p.id, remaining.get(p.id) - pieces);
@@ -248,7 +248,7 @@ export async function listSales(req, res) {
     `SELECT COUNT(*) AS total FROM sales s WHERE ${where.join(" AND ")}`, params
   );
   const [rows] = await pool.query(
-    `SELECT s.*, (SELECT SUM(quantity * unit_factor) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
+    `SELECT s.*, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
      FROM sales s WHERE ${where.join(" AND ")}
      ORDER BY s.id DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset]
@@ -411,7 +411,14 @@ async function getSaleWithItems(id) {
     "SELECT * FROM sales WHERE id = ? AND business_id = ?", [id, BUSINESS_ID]
   );
   if (!sale) return null;
-  const [items] = await pool.query("SELECT * FROM sale_items WHERE sale_id = ?", [id]);
+  // base_unit rides along for display ("= 24 tubes"); products are soft-deleted
+  // only, so the join stays stable for history.
+  const [items] = await pool.query(
+    `SELECT si.*, p.base_unit
+     FROM sale_items si LEFT JOIN products p ON p.id = si.product_id
+     WHERE si.sale_id = ?`,
+    [id]
+  );
   const [payments] = await pool.query(
     "SELECT id, type, method, amount, received_by, note, created_at FROM payments WHERE sale_id = ? ORDER BY id",
     [id]
