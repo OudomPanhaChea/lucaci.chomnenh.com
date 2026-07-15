@@ -9,6 +9,7 @@ import * as products from "../controllers/products.controller.js";
 import * as clients from "../controllers/clients.controller.js";
 import * as sales from "../controllers/sales.controller.js";
 import * as reports from "../controllers/reports.controller.js";
+import * as bonuses from "../controllers/bonuses.controller.js";
 import * as settings from "../controllers/settings.controller.js";
 import * as pub from "../controllers/public.controller.js";
 
@@ -87,6 +88,11 @@ router.post("/sales/:id/void", manager, sales.voidSale);
 
 router.get("/reports/summary", manager, reports.summary);
 router.get("/reports/dashboard", reports.dashboard);
+
+router.get("/bonuses/clients", manager, bonuses.listBonusClients);
+router.get("/bonuses/clients/:id", manager, bonuses.clientBonusDetail);
+router.post("/bonuses", manager, bonuses.createBonus);
+router.delete("/bonuses/:id", manager, bonuses.deleteBonus);
 
 router.get("/settings", settings.getSettings);
 router.put("/settings", requireRole("owner"), settings.updateSettings);

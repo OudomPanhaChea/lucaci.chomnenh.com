@@ -1,5 +1,6 @@
 import pool from "../config/db.js";
 import { BUSINESS_ID } from "../config/business.js";
+import { mergeUnitRows } from "../config/units.js";
 
 // Group key per requested granularity. `from`/`to` are YYYY-MM-DD; grouping
 // can be day, month, or year, so a range can be "1 Jan 2025 → 9 Jul 2026 by month".
@@ -71,8 +72,9 @@ export async function summary(req, res) {
      FROM sales s WHERE ${where}`, params
   );
 
+  // Units as sold (1000 boxes = 1000), never converted to base units
   const [[{ items_sold }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0) AS items_sold
+    `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold
      FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE ${where}`, params
   );
 
@@ -90,14 +92,23 @@ export async function summary(req, res) {
      FROM sales s WHERE ${where} GROUP BY s.payment_method ORDER BY revenue DESC`, params
   );
 
-  const [top_products] = await pool.query(
-    `SELECT si.name_snapshot AS name, si.product_id,
-            SUM(si.quantity * si.unit_factor) AS quantity, SUM(si.line_total) AS revenue
+  // Per unit first, then merged so each product shows what was actually
+  // bought ("1000 Box of 12 + 5 pcs") instead of a base-unit conversion
+  const [topProductRows] = await pool.query(
+    `SELECT si.name_snapshot AS name, si.product_id, si.unit_name,
+            COALESCE(MAX(p.base_unit), 'pcs') AS base_unit,
+            SUM(si.quantity) AS qty, SUM(si.line_total) AS revenue
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     LEFT JOIN products p ON p.id = si.product_id
      WHERE ${where}
-     GROUP BY si.product_id, si.name_snapshot
-     ORDER BY revenue DESC LIMIT 10`, params
+     GROUP BY si.product_id, si.name_snapshot, si.unit_name
+     ORDER BY revenue DESC LIMIT 60`, params
   );
+  const top_products = mergeUnitRows(
+    topProductRows,
+    (r) => `${r.product_id ?? "x"}|${r.name}`,
+    ["revenue"]
+  ).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
 
   const [top_clients] = await pool.query(
     `SELECT s.client_id, COALESCE(c.name, s.client_name) AS name,
@@ -126,7 +137,7 @@ export async function dashboard(req, res) {
     [BUSINESS_ID]
   );
   const [[{ items_sold }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity * si.unit_factor), 0) AS items_sold
+    `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
      WHERE s.business_id = ? AND s.status <> 'voided' AND DATE(s.created_at) = CURDATE()`,
     [BUSINESS_ID]

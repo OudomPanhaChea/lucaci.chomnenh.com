@@ -5,6 +5,10 @@ import { deleteUploadedFile, storeUploadedImage } from "../middleware/upload.js"
 
 const num = (v, d = 0) => (v === undefined || v === null || v === "" ? d : Number(v));
 
+// What one stock count means for this product (pcs, tubes, bottles ...);
+// free text, defaults to "pcs" so untouched products display as before.
+const baseUnit = (v, fallback = "pcs") => (String(v ?? "").trim() || fallback).slice(0, 30);
+
 // Bulk units come as a JSON string field in the multipart body:
 // [{ name, factor, sell_price, barcode? }]. Returns { units } or { error }.
 function parseUnits(raw) {
@@ -23,7 +27,7 @@ function parseUnits(raw) {
     const sellPrice = Number(u?.sell_price);
     if (!name || name.length > 60) return { error: "Each unit needs a name (max 60 chars)" };
     if (!Number.isInteger(factor) || factor < 1) {
-      return { error: `Unit "${name}": pieces per unit must be a whole number of 1 or more` };
+      return { error: `Unit "${name}": quantity per unit must be a whole number of 1 or more` };
     }
     if (Number.isNaN(sellPrice) || sellPrice < 0) {
       return { error: `Unit "${name}": price must be 0 or more` };
@@ -135,12 +139,12 @@ export async function createProduct(req, res) {
     const [result] = await conn.query(
       `INSERT INTO products
          (business_id, display_number, name, barcode, sku, category_id, cost_price, sell_price,
-          discount_pct, stock_qty, low_stock_alert, image_url, description, show_in_menu, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          discount_pct, stock_qty, low_stock_alert, base_unit, image_url, description, show_in_menu, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         BUSINESS_ID, next, b.name.trim(), b.barcode?.trim() || null, b.sku?.trim() || null,
         b.category_id || null, num(b.cost_price), num(b.sell_price),
-        num(b.discount_pct), stockQty, num(b.low_stock_alert, 5),
+        num(b.discount_pct), stockQty, num(b.low_stock_alert, 5), baseUnit(b.base_unit),
         image_url, b.description || null,
         b.show_in_menu === "0" || b.show_in_menu === false ? 0 : 1,
         b.is_active === "0" || b.is_active === false ? 0 : 1,
@@ -200,13 +204,14 @@ export async function updateProduct(req, res) {
     await conn.beginTransaction();
     await conn.query(
       `UPDATE products SET name=?, barcode=?, sku=?, category_id=?, cost_price=?, sell_price=?,
-        discount_pct=?, stock_qty=?, low_stock_alert=?, image_url=?, description=?, show_in_menu=?, is_active=?
+        discount_pct=?, stock_qty=?, low_stock_alert=?, base_unit=?, image_url=?, description=?, show_in_menu=?, is_active=?
        WHERE id = ? AND business_id = ?`,
       [
         (b.name ?? existing.name).trim(), b.barcode?.trim() || null, b.sku?.trim() || null,
         b.category_id || null, num(b.cost_price, existing.cost_price),
         num(b.sell_price, existing.sell_price), num(b.discount_pct, existing.discount_pct),
-        stockQty, num(b.low_stock_alert, existing.low_stock_alert), image_url, b.description || null,
+        stockQty, num(b.low_stock_alert, existing.low_stock_alert),
+        baseUnit(b.base_unit, existing.base_unit), image_url, b.description || null,
         b.show_in_menu === "0" || b.show_in_menu === false ? 0 : 1,
         b.is_active === "0" || b.is_active === false ? 0 : 1,
         id, BUSINESS_ID,
