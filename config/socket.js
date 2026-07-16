@@ -11,6 +11,12 @@ let io = null;
 export function initSocket(httpServer, corsOrigin) {
   io = new Server(httpServer, {
     cors: { origin: corsOrigin, credentials: true },
+    // The client connects same-origin through the Next rewrite, which delivers
+    // "/socket.io" WITHOUT the trailing slash; engine.io's default path is
+    // "/socket.io/" and its check is a prefix match, so the rewritten form 404s
+    // ("Cannot GET /socket.io"). With this off the path becomes "/socket.io"
+    // and BOTH forms match (direct connections keep working too).
+    addTrailingSlash: false,
   });
 
   io.use((socket, next) => {
