@@ -5,6 +5,10 @@ import axios from "axios";
 const api = axios.create({
   baseURL: "/api",
   withCredentials: true,
+  // A request that hangs (shared-hosting cold start, edge challenge eating the
+  // connection) must eventually fail so the UI can react; without this the
+  // login button spins forever. Generous enough for a 5MB image upload.
+  timeout: 30000,
 });
 
 export function apiError(err: unknown, fallback = "Something went wrong"): string {

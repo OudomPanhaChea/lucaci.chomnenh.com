@@ -72,7 +72,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post("/auth/login", { email, password });
+    const attempt = () => api.post("/auth/login", { email, password });
+    let data;
+    try {
+      ({ data } = await attempt());
+    } catch (err: unknown) {
+      // Only retry when the server never actually answered the question: no
+      // response at all (blip, timeout), a 502/503/504 from Hostinger's proxy
+      // while the app cold-starts, or a 403 (the edge's bot challenge, which an
+      // XHR cannot solve — our API never 403s a login). This is the machine
+      // pressing "Log in" the second time so the user doesn't have to. A real
+      // 400/401/429 is an answer and is re-thrown untouched, so wrong passwords
+      // still fail once and still count toward the rate limit exactly once.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status && ![403, 502, 503, 504].includes(status)) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+      ({ data } = await attempt());
+    }
     setUser(data.user);
     if (data.token) connectSocket(data.token);
   }, []);

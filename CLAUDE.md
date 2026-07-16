@@ -1018,6 +1018,47 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
 - Deploy note: icons are static files Hostinger serves and hCDN caches, so **purge the
   hCDN cache** after an icon change or the edge keeps handing out the old ones.
 
+### Done (2026-07-16, batch 8): "couldn't load" root cause no. 3 = hCDN bot challenge
+- **Reproduced live with a real headless browser** (curl never triggers it): a fresh
+  browser's FIRST request to `https://lucaci.chomnenh.com/login` returns **403** with
+  Hostinger's JS challenge page (`/hcdn-cgi/jschallenge`); the browser solves it,
+  POSTs `/hcdn-cgi/jschallenge-validate`, gets a per-origin clearance cookie, reloads,
+  and only then sees the app. Scored per client IP; BOTH domains sit behind hCDN
+  (`Server: hcdn` on api-lucaci too). Explains every open symptom:
+  - **"Only one user at a time"**: two browsers behind the shop's single IP raise the
+    score past the threshold; each needs its own clearance, and a challenge landing on
+    a navigation/RSC fetch = the error page for whoever it hits.
+  - **"Press login twice"**: the login POST is an XHR — an XHR cannot execute the
+    challenge JS, so the first attempt eats 403 HTML and dies; by the second press the
+    clearance settled. Our API never 403s a login, so 403 here = the edge, always.
+  - **Data loads but pill says Offline** (owner's screenshot): Socket.IO connects
+    straight to `api-lucaci`, an origin the browser never *navigates* to, so it can
+    NEVER earn a clearance cookie there — a challenge on the handshake is unsolvable
+    and realtime stays dead until the score decays.
+  - **Failures with one user / nobody**: the `/api` rewrite is a server-to-server hop
+    to api-lucaci (also challengeable, also unsolvable), plus plain cold starts.
+- **Primary fix is hPanel config, not code** (owner must do it): Websites → each of
+  lucaci + api-lucaci → Performance → CDN → Manage → turn Security/Bot-protection OFF,
+  or disable the CDN entirely — it buys this app nothing (every route is `no-store`,
+  the SW caches statics) and this is its third production incident. If no visible
+  toggle kills it, quote `/hcdn-cgi/jschallenge` + an `x-hcdn-request-id` to Hostinger
+  support. Also: actually create the step-8 keepalive cron (cold starts remain the
+  secondary cause). If api-lucaci's challenge can't be disabled, fallback plan is
+  routing the socket through the web origin again (polling-only, worked pre-2026-07-13).
+- Code hardening shipped (client): axios default `timeout: 30000` (a hung request
+  must fail so the UI can react; was infinite); `useAuth.login` retries ONCE after
+  1.5s when the server never answered (no response, 403, 502/503/504) — the machine
+  presses "Log in" the second time. A real 400/401/429 re-throws untouched, so wrong
+  passwords fail once, immediately, and count toward the rate limit exactly once.
+  Login limiter itself unchanged: 20 failed/15min per IP + 5 failed/10min per account,
+  successes never counted, and edge-killed attempts never reach Express at all.
+- Verified headless per the verify skill (scratchpad verify-login-retry.js, local dev,
+  route-interception faking the edge): 503-then-retry logs in with 2 calls, 403-HTML-
+  then-retry logs in with 2 calls, wrong password = exactly 1 call + error toast.
+  `next build` passes. NOTE: production probes during diagnosis (~100 requests) came
+  from the dev machine's IP — if that IP starts getting challenged harder, that's why;
+  it decays.
+
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
   unverified on a real iPad. If iOS install ever misbehaves, move it to an
