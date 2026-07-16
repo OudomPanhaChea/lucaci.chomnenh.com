@@ -1058,6 +1058,20 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   `next build` passes. NOTE: production probes during diagnosis (~100 requests) came
   from the dev machine's IP — if that IP starts getting challenged harder, that's why;
   it decays.
+- **Follow-up (same day): the challenge is NOT controllable from hPanel** — the owner
+  found no bot-protection setting on either website, and a fresh-browser probe
+  confirmed the challenge still fires. It hits heavy pages hardest (POS, inventory,
+  /menu load every product image + page chunks in one burst; a challenge landing on a
+  chunk or RSC fetch = broken page). **Way out, verified live:** the origin server
+  `156.67.222.87` serves BOTH sites directly with valid TLS (`Server: LiteSpeed`),
+  websocket 101, /uploads blobs, /menu, and the /api rewrite all working, and a fresh
+  headless browser pinned to that IP (`--host-resolver-rules`) loads /login + /menu
+  with ZERO challenges. Fix = get DNS off the hCDN edges (145.79.x.x anycast):
+  disable the CDN per website in hPanel (Performance → CDN), or failing that edit the
+  chomnenh.com DNS zone — A records for `lucaci` and `api-lucaci` → 156.67.222.87 and
+  DELETE their AAAA records (or IPv6 clients keep routing through the CDN). Caveat:
+  a hardcoded A record breaks if Hostinger ever migrates the account to a new server;
+  prefer the CDN toggle if it exists.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
