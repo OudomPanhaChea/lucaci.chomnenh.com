@@ -1073,6 +1073,38 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   a hardcoded A record breaks if Hostinger ever migrates the account to a new server;
   prefer the CDN toggle if it exists.
 
+### Done (2026-07-16, batch 9): living WITH the hCDN challenge (owner cannot disable CDN/DNS)
+- Owner cannot disable the CDN nor edit DNS, so the challenge stays; this batch makes
+  the app survive it. Three changes:
+  1. **Socket.IO back to same-origin through the Next rewrite** (reverses the
+     2026-07-13 direct-to-`NEXT_PUBLIC_API_ORIGIN` connection). Reason: the challenge
+     clearance cookie is per origin and only a NAVIGATION can earn it — the browser
+     never navigates to api-lucaci, so a challenged direct socket is dead forever
+     (the "Offline pill while data loads" signature). Same-origin rides the app's
+     clearance. Long-polling only (the upgrade can't cross the rewrite) — fine at this
+     scale. Required `addTrailingSlash: false` in `server/config/socket.js`: the
+     rewrite delivers `/socket.io` WITHOUT the trailing slash and engine.io's default
+     prefix `/socket.io/` 404s it ("Cannot GET /socket.io" — that was why prod
+     same-origin polling failed, NOT the 308 that skipTrailingSlashRedirect fixed).
+     engine.io's check is a prefix match, so the no-slash path matches both forms.
+  2. **Challenge auto-recovery** (`lib/challenge-recovery.ts`): a challenge answering
+     an XHR/chunk cannot be solved there, but ONE document reload re-earns clearance.
+     `reloadOnceForChallenge()` (in-memory + sessionStorage guards, 60s min interval,
+     cart survives via lib/pos-cart) is called from (a) an axios interceptor in
+     services/api.ts when a 403 body mentions hcdn-cgi/jschallenge, and (b) listeners
+     in service-worker.tsx for ChunkLoadError rejections and failed
+     `/_next/static/` script tags (prod only).
+  3. Image bursts: POS/inventory/menu grids already had `loading="lazy"` — no change.
+- Verified headless (scratchpad verify-challenge-recovery.js, local dev): pill Live
+  after login; faked challenge on /api/products → exactly 1 self-reload then real data
+  (10 rows); permanent challenge → no reload loop. Socket paths: direct with/without
+  slash AND via rewrite all 200 (was 404 via rewrite). `next build` passes.
+- Local dev gotcha AGAIN: port 5001 was running plain `node` (not nodemon) and served
+  stale code; check with Get-NetTCPConnection → the fix is kill + `npm run dev`.
+- If Hostinger ever exposes a bot-protection toggle or support disables the challenge,
+  the direct-socket connection (websocket, less traffic) can come back — but only
+  with a fallback, never as the sole path.
+
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
   unverified on a real iPad. If iOS install ever misbehaves, move it to an

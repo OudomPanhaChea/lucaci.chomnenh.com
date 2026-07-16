@@ -1,4 +1,5 @@
 import axios from "axios";
+import { looksLikeEdgeChallenge, reloadOnceForChallenge } from "@/lib/challenge-recovery";
 
 // Same-origin: next.config.ts rewrites /api → Express in dev; nginx does it
 // in production. The JWT lives in an httpOnly cookie.
@@ -9,6 +10,17 @@ const api = axios.create({
   // connection) must eventually fail so the UI can react; without this the
   // login button spins forever. Generous enough for a 5MB image upload.
   timeout: 30000,
+});
+
+// When the edge bot challenge answers an API call (403 HTML — an XHR can never
+// solve it), every request is dead until a document load re-earns clearance,
+// so trigger that reload rather than leaving a page that silently cannot load
+// data. The request still rejects normally either way.
+api.interceptors.response.use(undefined, (err) => {
+  if (looksLikeEdgeChallenge(err?.response?.status, err?.response?.data)) {
+    reloadOnceForChallenge();
+  }
+  return Promise.reject(err);
 });
 
 export function apiError(err: unknown, fallback = "Something went wrong"): string {
