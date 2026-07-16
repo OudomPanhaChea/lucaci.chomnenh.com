@@ -772,8 +772,9 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   controlling, both capable metas present, fullscreen enter/exit, RSC fetch still
   `text/x-component` through the SW, offline fallback renders (its logo is
   network-first cached, or it would render broken), 0px overflow at 390px.
-  **Deploy note: purge the hCDN cache after deploying, and `/sw.js` is served
-  `must-revalidate` so a future SW fix can actually reach installed tablets.**
+  **Deploy note: purge the hCDN cache after deploying** or tablets keep the old
+  `sw.js`. NOTE: the `must-revalidate` this entry originally claimed does NOT hold
+  in production, see the 2026-07-16 batch 6 finding below.
 
 ### Done (2026-07-16, batch 2): admin header + user menu
 - The header right side is now ONE control. `components/layouts/user-menu.tsx`
@@ -964,7 +965,37 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   pass for the wrong reason). Let them auto-close (`waitForFunction` on zero
   `.Toastify__toast`); clicking the close button races the auto-close and hangs.
 
+### Done (2026-07-16, batch 6): deployed batches 1-5 to production
+- Merged `develop` → `main` (fast-forward, commit `8cabdda`, 27 files: the whole PWA /
+  offline / user-menu / useAuth batch plus the POS cart work). hPanel auto-redeployed
+  the Web app from `main` in ~30s; the `server/**` change (reset-transactions.sql) also
+  fired `sync-api-deploy`. No migration was needed (that SQL is run by hand, never on
+  deploy). Verified live: `/sw.js`, `/manifest.webmanifest`, `/offline.html` and all 3
+  icons serve 200, API `/api/health` 200, `/login` 200, and **the cache-poisoning
+  protection still holds** (`/admin/pos` = `no-store` + hCDN `DYNAMIC`; the same URL
+  with `RSC: 1` = `text/x-component`, not cached HTML).
+- **Finding: `next.config.ts` `headers()` does NOT apply to `public/` files in
+  production.** Hostinger serves them itself, not Next: `/sw.js` comes back
+  `Content-Type: application/x-javascript` with a `last-modified` and NO
+  `Cache-Control`, and `/manifest.webmanifest` comes back `text/plain`. Both headers
+  configured in next.config (sw.js `must-revalidate` + `Service-Worker-Allowed`,
+  manifest `application/manifest+json`) are silently dropped. They DO work under a
+  local `next start`, which is why this was never caught before the first real deploy.
+  Consequences:
+  - `/sw.js` has no cache headers, so **purging the hCDN cache after any deploy that
+    touches it is MANDATORY, not advisory** (it is the only thing that gets a worker
+    fix onto a tablet). Browsers bypass the HTTP cache when checking a SW for updates,
+    so the risk is the CDN edge, not the browser.
+  - `Service-Worker-Allowed` is missing but harmless: `sw.js` sits at the root, so its
+    default scope is already `/`.
+  - The manifest's `text/plain` is the real open question: Chrome parses a manifest
+    regardless of MIME, but this is unverified on a real iPad. If install ever
+    misbehaves, move it to a Next metadata route (`app/manifest.ts`), which Next serves
+    itself with the correct type and which Hostinger cannot bypass.
+
 ### Pending / decisions to revisit
+- **Manifest is served `text/plain` in production** (see batch 6). Untested on a real
+  iPad. Fix if needed: `app/manifest.ts` metadata route instead of `public/`.
 - The manifest is linked on `/menu` too, so a customer browsing the public menu
   can get an install prompt for the POS (start_url is /admin/pos → login). Harmless,
   but scope the manifest link to /admin if it ever confuses anyone.
