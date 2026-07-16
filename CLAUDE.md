@@ -993,9 +993,35 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
     misbehaves, move it to a Next metadata route (`app/manifest.ts`), which Next serves
     itself with the correct type and which Hostinger cannot bypass.
 
+### Done (2026-07-16, batch 7): PWA was not installable, icons lied about their size
+- **Symptom**: no install prompt in production. **Cause**: Chromium's own
+  `Page.getInstallabilityErrors` (via CDP, the fastest way to stop guessing) said
+  `no-acceptable-icon` (min 144px). The manifest declared 192/512/512-maskable and all
+  three URLs returned `200 image/png`, but the FILES were stale: `icon-192.png` was
+  really 100x100, `icon-512.png` 400x400, and `maskable-512.png` 100x100 AND
+  byte-identical to icon-192 (never a maskable render, so the 80% safe zone this brief
+  claimed did not exist). **Chromium rejects an icon whose decoded dimensions do not
+  match its `sizes` attribute**, so all three were discarded and the prompt never armed.
+- `scripts/generate-icons.mjs` was correct all along; it had simply **never been run**
+  since its PWA section was added, so `public/icons/` held leftovers from an earlier
+  draft. Running it fixed everything (192x192, 512x512, a real 512x512 maskable);
+  app/icon.png (512), apple-icon.png (180), chomnenh-mark.png (512), favicon.ico (32)
+  regenerate in the same pass. **If you touch generate-icons.mjs, RUN IT and verify the
+  output dimensions** — committing the script without its output is the whole bug.
+- **Verification lesson**: the earlier PWA check asserted "manifest valid" and that the
+  icons returned 200. Neither is worth anything if the pixels do not match the promise.
+  Check real dimensions (PNG IHDR bytes 16-24), not just HTTP status.
+- Everything else was already right, which is what hid this: the SW registers, is
+  active and controls the page in production; the manifest parses; the link tag and both
+  `*-web-app-capable` metas are present. The `text/plain` manifest MIME (batch 6) was a
+  RED HERRING — Chromium parses a manifest regardless of content type.
+- Deploy note: icons are static files Hostinger serves and hCDN caches, so **purge the
+  hCDN cache** after an icon change or the edge keeps handing out the old ones.
+
 ### Pending / decisions to revisit
-- **Manifest is served `text/plain` in production** (see batch 6). Untested on a real
-  iPad. Fix if needed: `app/manifest.ts` metadata route instead of `public/`.
+- Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
+  unverified on a real iPad. If iOS install ever misbehaves, move it to an
+  `app/manifest.ts` metadata route, which Next serves itself with the right type.
 - The manifest is linked on `/menu` too, so a customer browsing the public menu
   can get an install prompt for the POS (start_url is /admin/pos → login). Harmless,
   but scope the manifest link to /admin if it ever confuses anyone.
