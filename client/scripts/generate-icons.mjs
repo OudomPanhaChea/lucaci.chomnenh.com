@@ -1,8 +1,9 @@
 // Generates square app icons from the Chomnenh wordmark (the "C" monogram).
 // Run from client/: node scripts/generate-icons.mjs
-// Outputs: app/icon.png, app/apple-icon.png, public/images/chomnenh-mark.png, public/favicon.ico
+// Outputs: app/icon.png, app/apple-icon.png, public/images/chomnenh-mark.png,
+// public/favicon.ico, public/icons/* (PWA manifest icons)
 import sharp from "sharp";
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 
 const SRC = "public/images/Chomnenh-logo.png";
 const BG = "#ffffff";
@@ -66,6 +67,19 @@ await sharp(square).resize(180, 180).png().toFile("app/apple-icon.png");
 const fav32 = await sharp(rounded).resize(32, 32).png().toBuffer();
 await writeFile("public/favicon.ico", pngToIco(fav32, 32));
 
+// PWA manifest icons. "any" icons keep the rounded card look the launcher shows
+// as-is; the maskable one must survive Android cropping it to a circle, so its
+// artwork sits inside the 80%-diameter safe zone on a full-bleed background.
+await mkdir("public/icons", { recursive: true });
+await sharp(rounded).resize(192, 192).png().toFile("public/icons/icon-192.png");
+await writeFile("public/icons/icon-512.png", rounded);
+
+const maskableArt = await sharp(square).resize(316, 316).png().toBuffer();
+await sharp({ create: { width: 512, height: 512, channels: 4, background: BG } })
+  .composite([{ input: maskableArt, left: 98, top: 98 }])
+  .png()
+  .toFile("public/icons/maskable-512.png");
+
 // White wordmark for dark surfaces: recolor the teal glyphs to white, keep the
 // orange dot (teal has R≈42, orange R=255, so split on the red channel).
 const { data, info } = await sharp(SRC).raw().toBuffer({ resolveWithObject: true });
@@ -79,5 +93,5 @@ await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 }
   .toFile("public/images/Chomnenh-logo-white.png");
 
 console.log(
-  "Icons written: app/icon.png, app/apple-icon.png, public/images/chomnenh-mark.png, public/images/Chomnenh-logo-white.png, public/favicon.ico"
+  "Icons written: app/icon.png, app/apple-icon.png, public/images/chomnenh-mark.png, public/images/Chomnenh-logo-white.png, public/favicon.ico, public/icons/{icon-192,icon-512,maskable-512}.png"
 );

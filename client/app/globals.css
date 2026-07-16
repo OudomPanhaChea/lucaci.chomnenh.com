@@ -99,8 +99,8 @@ body {
   --toastify-toast-min-height: 52px;
 }
 .Toastify__toast {
-  border: 1px solid var(--line);
-  box-shadow: 0 4px 16px -2px rgb(20 35 50 / 0.14);
+  /* border: 1px solid var(--line); */
+  /* box-shadow: 0 4px 16px -2px rgb(20 35 50 / 0.14); */
   padding: 10px 12px;
   align-items: center;
   cursor: grab;
@@ -110,11 +110,6 @@ body {
   font-size: 14px;
   line-height: 1.45;
 }
-.Toastify__toast--success { border-left: 4px solid #10b981; }
-.Toastify__toast--error   { border-left: 4px solid #f43f5e; }
-.Toastify__toast--warning { border-left: 4px solid #f59e0b; }
-.Toastify__toast--info    { border-left: 4px solid var(--brand); }
-.Toastify__progress-bar { height: 2px; opacity: 0.6; }
 .Toastify__close-button {
   color: var(--fg-subtle);
   opacity: 1;
@@ -163,6 +158,32 @@ body {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ── Safe areas (installed app on iPad / iPhone) ──────────────────────────
+   viewport-fit=cover (app/layout.tsx) lets the page paint edge to edge, under
+   the home indicator and the display's rounded corners. These insets are 0 in
+   a normal browser tab, so the padding below is just the page padding there.
+   Unlayered like .no-scrollbar: it has to win over the p-4 / md:p-6 utilities
+   it replaces. */
+.content-safe {
+  padding: 1rem;
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+@media (min-width: 768px) {
+  .content-safe {
+    padding: 1.5rem;
+    padding-left: calc(1.5rem + env(safe-area-inset-left));
+    padding-right: calc(1.5rem + env(safe-area-inset-right));
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  }
+}
+/* The sidebar is fixed to the viewport, so it clears the home indicator itself.
+   Keeps the p-2 it is used with (unlayered, so it would otherwise zero it out). */
+.sider-safe {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
 }
 
 /* ── Date pickers on small screens ────────────────────────────────────────

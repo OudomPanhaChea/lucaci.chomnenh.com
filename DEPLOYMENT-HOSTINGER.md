@@ -172,6 +172,27 @@ remote DB, if remote MySQL access is enabled in hPanel.)
 - [ ] Sell something on `/admin/pos`; the dashboard updates in realtime
 - [ ] Set up a recurring backup of the MySQL database (hPanel backups cover it;
       one DB backup includes the images too)
+- [ ] **Purge the hCDN cache** (hPanel > Performance > Cache). Required after any
+      deploy that changes `sw.js` or `offline.html`.
+
+## Step 8: keep the apps warm (optional, reduces error screens)
+
+Shared-hosting Node apps can be idled out and cold-started on the next request,
+and a cold start answers with a 502/503 from Hostinger's proxy for a few seconds.
+The service worker now turns that into the branded "Reconnecting" page that
+reloads itself, so staff no longer see a browser error, **but the page is still a
+few seconds of not selling**. A cron that pings the app keeps it from idling:
+
+1. hPanel > Advanced > Cron Jobs > Create
+2. Every 5 minutes (`*/5 * * * *`)
+3. Command:
+   ```
+   curl -s -o /dev/null https://lucaci.chomnenh.com/api/health
+   ```
+
+One request exercises both apps: it hits the Web app, which proxies `/api/*` to
+the API app, so a 200 means the whole chain is warm. It is deliberately the same
+URL the retry page polls.
 
 ## Gotchas
 

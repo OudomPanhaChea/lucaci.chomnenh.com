@@ -32,6 +32,12 @@ import {
 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { playScanBeep, playScanError } from "@/lib/sound";
+import {
+  saveCart,
+  readSavedCart,
+  clearSavedCart,
+  rehydrateCart,
+} from "@/lib/pos-cart";
 import { useRealtime } from "@/hooks/useRealtime";
 import BarcodeScanner from "@/components/barcode-scanner";
 import Receipt from "@/components/receipt";
@@ -69,6 +75,55 @@ const piecesOf = (lines: CartLine[], productId: number, exceptKey?: string) =>
         : n,
     0,
   );
+// What a line change had to give up, so the caller can explain it. Quantities
+// are in the line's OWN unit (boxes stay boxes): never show base conversions.
+type Clamp = {
+  product_id: number;
+  name: string;
+  unit: string;
+  granted: number;
+} | null;
+
+// Change one line, then re-merge (unit/bonus changes can land on an existing
+// line's key) and re-cap the quantity against stock in pieces. Pure and
+// side-effect free on purpose: React may replay this, so the toast is the
+// caller's job, not ours.
+const applyLineChange = (
+  lines: CartLine[],
+  key: string,
+  mutate: (l: CartLine) => CartLine,
+): { lines: CartLine[]; clamped: Clamp } => {
+  const idx = lines.findIndex((l) => lineKey(l) === key);
+  if (idx < 0) return { lines, clamped: null };
+  let next = mutate(lines[idx]);
+  const rest = lines.filter((_, i) => i !== idx);
+  const dupIdx = rest.findIndex((l) => lineKey(l) === lineKey(next));
+  if (dupIdx >= 0) {
+    next = { ...next, quantity: next.quantity + rest[dupIdx].quantity };
+    rest.splice(dupIdx, 1);
+  }
+  let clamped: Clamp = null;
+  if (next.product.stock_qty !== null) {
+    const avail = next.product.stock_qty - piecesOf(rest, next.product.id);
+    const max = Math.max(Math.floor(avail / lineFactor(next)), 0);
+    // Only a REQUEST above the cap is a clamp. Reaching 0 by pressing minus or
+    // remove is deliberate and must stay silent.
+    if (next.quantity > max) {
+      clamped = {
+        product_id: next.product.id,
+        name: next.product.name,
+        unit: next.unit?.name ?? next.product.base_unit ?? "pcs",
+        granted: max,
+      };
+      next = { ...next, quantity: max };
+    }
+  }
+  if (next.quantity <= 0) return { lines: rest, clamped };
+  const out = [...rest];
+  out.splice(Math.min(idx, out.length), 0, next);
+  return { lines: out, clamped };
+};
+
 // Small pill buttons used for quick amounts in the payment modal
 const chipCls = (active: boolean) =>
   `cursor-pointer rounded-md border px-2.5 py-1 text-xs transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -96,7 +151,27 @@ export default function PosPage() {
   const [useCredit, setUseCredit] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [quickClientOpen, setQuickClientOpen] = useState(false);
+  const [clientsLoaded, setClientsLoaded] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const restoreDone = useRef(false);
+  // Latest cart for event handlers. Reading state inside a setCart updater is
+  // fine; SIDE EFFECTS in one are not (React may replay it), so the stock toast
+  // below reads this instead.
+  const cartRef = useRef<CartLine[]>([]);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  // One live toast per product: repeat refusals must not stack, but a plain
+  // toastId SUPPRESSES the new message and leaves the old one on screen, which
+  // goes stale the moment the cap changes (switch the line to boxes and "Only
+  // 10 pcs" is a lie). Update the live one instead, and restart its timer.
+  const stockToast = useCallback((productId: number, msg: string) => {
+    const id = `stock-${productId}`;
+    if (toast.isActive(id))
+      toast.update(id, { render: msg, type: "warning", autoClose: 5000 });
+    else toast.warn(msg, { toastId: id });
+  }, []);
 
   const loadProducts = useCallback(() => {
     api
@@ -108,7 +183,8 @@ export default function PosPage() {
     api
       .get("/clients")
       .then(({ data }) => setClients(data))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setClientsLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -130,6 +206,49 @@ export default function PosPage() {
     setSettings(payload as Settings),
   );
 
+  // Restore an interrupted sale. Waits for products AND clients: lines reprice
+  // against current products, and restoring a partner's cart without their row
+  // loaded would silently reprice the sale at retail.
+  useEffect(() => {
+    if (restoreDone.current || products.length === 0 || !clientsLoaded) return;
+    restoreDone.current = true;
+    const saved = readSavedCart();
+    if (!saved) return;
+    const lines = rehydrateCart(saved, products);
+    if (lines.length === 0) {
+      clearSavedCart(); // every line went away; nothing left to restore
+      return;
+    }
+    setCart(lines);
+    setClientId(
+      saved.client_id && clients.some((c) => c.id === saved.client_id)
+        ? saved.client_id
+        : null,
+    );
+    setDiscountPct(saved.discount_pct);
+    // A pre-filled cart the cashier did not just build needs SOME notice, or a
+    // leftover gets charged to the next customer. restoreDone already makes
+    // this fire once; the id is belt and braces.
+    const count = lines.reduce((n, l) => n + l.quantity, 0);
+    toast.info(`Cart restored (${num(count)} ${count === 1 ? "item" : "items"})`, {
+      toastId: "cart-restored",
+    });
+  }, [products, clients, clientsLoaded]);
+
+  // Persist the sale in progress so a reload, a crash, or iOS evicting the tab
+  // mid-rush doesn't cost the cashier a scanned cart. Guarded on restoreDone or
+  // the first render's empty cart would wipe the entry before it is read back.
+  useEffect(() => {
+    if (!restoreDone.current) return;
+    saveCart(cart, clientId, discountPct);
+  }, [cart, clientId, discountPct]);
+
+  const discardCart = () => {
+    setCart([]);
+    setClientId(null);
+    setDiscountPct(0);
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter(
@@ -142,26 +261,27 @@ export default function PosPage() {
     );
   }, [products, search, categoryId]);
 
+  // Adding is silent by design: the cart itself is the feedback, and scans
+  // already beep. Only a REFUSED add says anything, because that is the case
+  // the cashier cannot see.
   const addToCart = useCallback(
-    (
-      product: Product,
-      opts: { unit?: ProductUnit | null; silent?: boolean } = {},
-    ) => {
+    (product: Product, opts: { unit?: ProductUnit | null } = {}) => {
       const unit = opts.unit ?? null;
-      setCart((prev) => {
-        // Stock check in pieces across every line of this product; NULL = untracked
-        if (product.stock_qty !== null) {
-          const used = piecesOf(prev, product.id);
-          if (used + (unit?.factor ?? 1) > product.stock_qty) {
-            playScanError();
-            toast.warn(
-              `Only ${num(product.stock_qty)} ${product.base_unit || "pcs"} in stock for "${product.name}"`,
-            );
-            return prev;
-          }
+      // Stock check in pieces across every line of this product; NULL = untracked
+      if (product.stock_qty !== null) {
+        const used = piecesOf(cartRef.current, product.id);
+        if (used + (unit?.factor ?? 1) > product.stock_qty) {
+          playScanError();
+          // Scanning a maxed-out product five times is one problem, not five
+          // toasts.
+          stockToast(
+            product.id,
+            `Only ${num(product.stock_qty)} ${product.base_unit || "pcs"} in stock for "${product.name}"`,
+          );
+          return;
         }
-        if (!opts.silent)
-          toast.success(`${product.name} added`, { autoClose: 900 });
+      }
+      setCart((prev) => {
         const key = `${product.id}:${unit?.id ?? 0}:0`;
         const line = prev.find((l) => lineKey(l) === key);
         return line
@@ -184,7 +304,7 @@ export default function PosPage() {
     async (code: string) => {
       const local = products.find((p) => p.barcode === code);
       if (local) {
-        addToCart(local, { silent: true });
+        addToCart(local);
         return;
       }
       const byUnit = products.find((p) =>
@@ -193,7 +313,6 @@ export default function PosPage() {
       if (byUnit) {
         addToCart(byUnit, {
           unit: byUnit.units!.find((u) => u.barcode === code),
-          silent: true,
         });
         return;
       }
@@ -206,7 +325,7 @@ export default function PosPage() {
               (u: ProductUnit) => u.id === data.matched_unit_id,
             ) ?? null)
           : null;
-        addToCart(data, { unit, silent: true });
+        addToCart(data, { unit });
       } catch {
         playScanError();
       }
@@ -225,52 +344,39 @@ export default function PosPage() {
       : products.find((p) => p.units?.some((u) => u.barcode === code));
     if (exact) {
       playScanBeep();
-      addToCart(exact, { silent: true });
+      addToCart(exact);
       setSearch("");
     } else if (byUnit) {
       playScanBeep();
       addToCart(byUnit, {
         unit: byUnit.units!.find((u) => u.barcode === code),
-        silent: true,
       });
       setSearch("");
     } else if (filtered.length === 1) {
       playScanBeep();
-      addToCart(filtered[0], { silent: true });
+      addToCart(filtered[0]);
       setSearch("");
     } else if (filtered.length === 0) {
       playScanError();
     }
   };
 
-  // Change one line, then re-merge (unit/bonus changes can land on an existing
-  // line's key) and re-cap the quantity against stock in pieces.
+  // Silently capping a typed quantity reads as a broken input (type 999, get
+  // 12), so a clamp says why. No buzz here, unlike a scan: the cashier is
+  // already looking at the field they just typed into.
   const mutateLine = (key: string, mutate: (l: CartLine) => CartLine) => {
-    setCart((prev) => {
-      const idx = prev.findIndex((l) => lineKey(l) === key);
-      if (idx < 0) return prev;
-      let next = mutate(prev[idx]);
-      const rest = prev.filter((_, i) => i !== idx);
-      const dupIdx = rest.findIndex((l) => lineKey(l) === lineKey(next));
-      if (dupIdx >= 0) {
-        next = { ...next, quantity: next.quantity + rest[dupIdx].quantity };
-        rest.splice(dupIdx, 1);
-      }
-      if (next.product.stock_qty !== null) {
-        const avail = next.product.stock_qty - piecesOf(rest, next.product.id);
-        next = {
-          ...next,
-          quantity: Math.min(
-            next.quantity,
-            Math.max(Math.floor(avail / lineFactor(next)), 0),
-          ),
-        };
-      }
-      if (next.quantity <= 0) return rest;
-      const out = [...rest];
-      out.splice(Math.min(idx, out.length), 0, next);
-      return out;
-    });
+    const { lines, clamped } = applyLineChange(cartRef.current, key, mutate);
+    setCart(lines);
+    cartRef.current = lines; // keep rapid keystrokes off a stale read
+    if (clamped) {
+      // Typing "999" fires onChange per keystroke: one problem, one toast
+      stockToast(
+        clamped.product_id,
+        clamped.granted === 0
+          ? `No more "${clamped.name}" available`
+          : `Only ${num(clamped.granted)} ${clamped.unit} available for "${clamped.name}"`,
+      );
+    }
   };
   const setQty = (key: string, qty: number) =>
     mutateLine(key, (l) => ({ ...l, quantity: qty }));
@@ -339,9 +445,7 @@ export default function PosPage() {
         use_credit: useCredit,
       });
       setLastSale(data);
-      setCart([]);
-      setClientId(null);
-      setDiscountPct(0);
+      discardCart(); // also drops the persisted copy via the save effect
       setReceived(null);
       setPayAmount(null);
       setUseCredit(false);
@@ -442,7 +546,7 @@ export default function PosPage() {
                     key={p.id}
                     type="button"
                     disabled={out}
-                    onClick={() => addToCart(p, { silent: true })}
+                    onClick={() => addToCart(p)}
                     // flex-col keeps content top-aligned when the grid row
                     // stretches this card (a bare <button> centers it, which
                     // made images drift down on shorter cards)
@@ -480,7 +584,7 @@ export default function PosPage() {
                         {p.name}
                       </p>
                       {bulk && (
-                        <p className="tabular truncate text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                        <p className="tabular truncate text-[11px] font-medium text-brand-600 dark:text-brand-400">
                           {bulk.name}: {money(bulk.sell_price)}
                         </p>
                       )}
@@ -519,8 +623,8 @@ export default function PosPage() {
           {cart.length > 0 && (
             <button
               type="button"
-              onClick={() => setCart([])}
-              className="cursor-pointer text-sm text-rose-600 transition-colors duration-200 hover:text-rose-700 dark:text-rose-400"
+              onClick={discardCart}
+              className="cursor-pointer rounded-md px-1.5 py-0.5 text-sm text-rose-600 transition-colors duration-200 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/10"
             >
               Clear
             </button>
@@ -629,7 +733,7 @@ export default function PosPage() {
                           prefix="$"
                           className="!w-24"
                           title="Line price, editable for negotiated deals"
-                          status={negotiated ? "warning" : undefined}
+                          // status={negotiated ? "warning" : undefined}
                           value={price}
                           onChange={(v) =>
                             setLinePrice(key, v === null ? null : Number(v))

@@ -2,7 +2,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Layout, Dropdown } from "antd";
+import { Layout, Tooltip } from "antd";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -13,8 +13,6 @@ import {
   Gift,
   UserCog,
   Settings,
-  LogOut,
-  UserRound,
   Menu as MenuIcon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -26,7 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getSocket } from "@/services/socket";
 import { useRealtime } from "@/hooks/useRealtime";
 import api from "@/services/api";
-import ThemeToggle from "@/components/theme/theme-toggle";
+import UserMenu from "@/components/layouts/user-menu";
 import type { Role, Settings as SettingsType } from "@/lib/types";
 
 const { Header, Content, Sider } = Layout;
@@ -143,7 +141,7 @@ function useSocketConnected(userId?: number) {
 }
 
 export default function AdminShell({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [broken, setBroken] = useState(false); // below the lg breakpoint
@@ -290,7 +288,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
           {/* Desktop: collapse control lives at the bottom of the sidebar */}
           {!broken && (
-            <div className="shrink-0 border-t border-line p-2">
+            <div className="sider-safe shrink-0 border-t border-line p-2">
               <button
                 type="button"
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -318,32 +316,32 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           className="!sticky !top-0 z-30 flex !h-14 items-center justify-between border-b border-line !bg-surface-raised !px-4 shadow-card"
           style={{ lineHeight: "normal" }}
         >
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             {broken && (
               <button
                 type="button"
                 aria-label="Open menu"
                 onClick={() => setCollapsed(!collapsed)}
-                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg"
+                className="-ml-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg"
               >
-                <MenuIcon className="h-4.5 w-4.5" />
+                <MenuIcon className="h-5 w-5" />
               </button>
             )}
 
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2.5">
               {settings?.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={settings.logo_url}
                   alt={settings.business_name}
-                  className="h-7 w-7 shrink-0 rounded-md border border-line bg-white object-cover"
+                  className="h-8 w-8 shrink-0 object-cover"
                 />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src="/images/chomnenh-mark.png"
                   alt=""
-                  className="h-7 w-7 shrink-0 rounded-md"
+                  className="h-8 w-8 shrink-0 rounded-lg"
                 />
               )}
               <span className="truncate text-sm font-semibold text-fg">
@@ -351,88 +349,40 @@ export default function AdminShell({ children }: { children: ReactNode }) {
               </span>
             </div>
 
-            <span
+            <span className="hidden h-5 w-px shrink-0 bg-line sm:block" />
+
+            <Tooltip
               title={
                 connected
                   ? "Live: connected to the server, this page updates in realtime"
                   : "Offline: no realtime connection, data may be stale until reload"
               }
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
-                connected
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                  : "bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
-              }`}
             >
-              {connected ? (
-                <Wifi className="h-3.5 w-3.5" />
-              ) : (
-                <WifiOff className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">
-                {connected ? "Live" : "Offline"}
+              <span
+                className={`inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-xs font-medium ${
+                  connected
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/15 dark:text-emerald-300"
+                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/15 dark:text-rose-300"
+                }`}
+              >
+                {connected ? (
+                  <Wifi className="h-3.5 w-3.5" />
+                ) : (
+                  <WifiOff className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden sm:inline">
+                  {connected ? "Live" : "Offline"}
+                </span>
               </span>
-            </span>
+            </Tooltip>
           </div>
 
-          <div className="flex shrink-0 items-center gap-3">
-            <ThemeToggle />
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: [
-                  {
-                    key: "identity",
-                    label: (
-                      <div className="py-1">
-                        <p className="font-medium">{user?.name}</p>
-                        <p className="text-xs capitalize opacity-60">
-                          {user?.role}
-                        </p>
-                      </div>
-                    ),
-                    disabled: true,
-                  },
-                  { type: "divider" },
-                  {
-                    key: "profile",
-                    icon: <UserRound className="h-4 w-4" />,
-                    label: <Link href="/admin/profile">My profile</Link>,
-                  },
-                  {
-                    key: "logout",
-                    icon: <LogOut className="h-4 w-4" />,
-                    danger: true,
-                    label: "Log out",
-                    onClick: () => logout(),
-                  },
-                ],
-              }}
-            >
-              <button
-                type="button"
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 transition-colors duration-200 hover:bg-surface-sunken"
-              >
-                {user?.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={user.avatar_url}
-                    alt={user.name}
-                    className="h-8 w-8 rounded-full border border-line object-cover"
-                  />
-                ) : (
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-sm font-semibold text-brand-foreground">
-                    {user?.name?.charAt(0).toUpperCase()}
-                  </span>
-                )}
-                <span className="hidden text-sm font-medium text-fg sm:block">
-                  {user?.name}
-                </span>
-              </button>
-            </Dropdown>
+          <div className="flex shrink-0 items-center">
+            <UserMenu />
           </div>
         </Header>
 
-        <Content className="!bg-surface p-4 md:p-6">{children}</Content>
+        <Content className="!bg-surface content-safe">{children}</Content>
       </Layout>
     </Layout>
   );

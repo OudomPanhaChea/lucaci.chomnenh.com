@@ -49,7 +49,7 @@ export default function DashboardPage() {
     data && Number(data.yesterday_revenue) > 0
       ? ((Number(t?.revenue) - Number(data.yesterday_revenue)) / Number(data.yesterday_revenue)) * 100
       : null;
-
+  console.log(data)
   return (
     <div>
       <SectionHeader
@@ -188,7 +188,7 @@ export default function DashboardPage() {
                 {data?.recent_sales.map((s) => (
                   <tr key={s.id} className="transition-colors duration-150 hover:bg-surface-sunken">
                     <td className="px-4 py-2.5 font-mono text-xs text-fg">{s.invoice_number}</td>
-                    <td className="px-4 py-2.5 text-fg-muted">{s.client_name || "Walk-in"}</td>
+                    <td className="px-4 py-2.5 text-fg-muted">{s.client_name || "—"}</td>
                     <td className="px-4 py-2.5 text-fg-muted">{s.cashier_name}</td>
                     <td className="px-4 py-2.5"><StatusBadge status={s.payment_method} /></td>
                     <td className="px-4 py-2.5"><StatusBadge status={s.status} /></td>

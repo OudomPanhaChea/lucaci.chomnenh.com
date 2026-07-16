@@ -413,8 +413,8 @@ export default function MenuPage() {
                 </div>
               )}
               <img
-                src={"/images/chomnenh-logo.png"}
-                alt={data.business.name}
+                src={"/images/Chomnenh-logo.png"}
+                alt={"Chomnenh"}
                 className="h-8"
               />
             </div>
