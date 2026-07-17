@@ -21,7 +21,13 @@ const API_ORIGIN = process.env.API_ORIGIN || "http://localhost:5001";
 // without this guard a local `next start` would pin the default localhost
 // API_ORIGIN to the production server, silently pointing local tests at prod.
 const PIN_IP = process.env.API_ORIGIN_PIN_IP;
-if (PIN_IP && process.env.API_ORIGIN && !["localhost", "127.0.0.1"].includes(new URL(API_ORIGIN).hostname)) {
+const pinEngaged = Boolean(
+  PIN_IP &&
+    process.env.API_ORIGIN &&
+    !["localhost", "127.0.0.1"].includes(new URL(API_ORIGIN).hostname),
+);
+if (pinEngaged) {
+  console.log(`[api-pin] resolving ${new URL(API_ORIGIN).hostname} -> ${PIN_IP}`);
   const pinnedHost = new URL(API_ORIGIN).hostname;
   const realLookup = dns.lookup.bind(dns);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,6 +58,14 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        // Externally visible pin diagnostic (baked at build, where the env
+        // matches runtime on hPanel): lets us see from outside whether the
+        // DNS pin engaged, since a silently-off pin is otherwise identical
+        // to a working one except for doubled x-hcdn headers on /api.
+        source: "/login",
+        headers: [{ key: "x-pin-state", value: pinEngaged ? "on" : "off" }],
+      },
       {
         // The service worker script itself must never be held by a cache, or a
         // deployed fix to sw.js would not reach tablets that already have the
