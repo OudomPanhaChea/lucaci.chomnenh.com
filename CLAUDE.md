@@ -1111,10 +1111,12 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   the ETag OF THE MISSING BODY and the API's helmet/CORS headers (so the request
   reached Express and the body was dropped on the way back). Hits any URL: virgin
   paths, 401s, `/api/menu`. NEVER happens hitting `api-lucaci` directly (60+ probes
-  clean), never on `/_next/static`. The differentiator is the rewrite's
-  server-to-server hop, which transits Hostinger's hCDN a SECOND time (doubled
-  `x-hcdn-cache-status` headers prove it). Not ETag revalidation (virgin URLs get it
-  too), no edge-node correlation; it is Hostinger's edge misbehaving, request IDs
+  clean), never on `/_next/static`. **Final localisation** (the edge was the first
+  suspect but survived the DNS pin): responses STREAMED through Next's rewrite
+  proxy lose their body, while Next-GENERATED responses are 100% clean (0/40 vs
+  18/40 measured back-to-back) and a server-side `fetch` inside a route handler
+  always receives the full body (30/30). So the platform's handling of PIPED proxy
+  responses drops bodies; nothing upstream does. Sample request IDs
   `8afe85322e69dadaab295414e7a56080-kul-edge3` / `f4eff60105f9bb8bb50bbf3c093a619e-kul-edge3`.
 - **Why it looked like "the page reload issue"**: an empty body is still a 200, so
   `/auth/me` "succeeded" with `data.user === undefined` → `loading=false`, user null →
@@ -1142,28 +1144,50 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
      this, one stripped `/uploads/img/*` response would be cached cache-first,
      i.e. a PERMANENTLY broken product image on that tablet. `activate` now sweeps
      all four caches and deletes any zero-byte entry already poisoned.
-  3. **`API_ORIGIN_PIN_IP` in `next.config.ts`**: patches `dns.lookup` for the API
-     hostname so the rewrite hop connects to the origin server (156.67.222.87)
-     instead of resolving to the hCDN anycast edge. Kills the second CDN transit
-     entirely: no server-side challenge, no body-stripping, one less WAN round trip
-     per API/socket/upload request. TLS + SNI + cert validation unchanged (the cert
-     is for the hostname), so a stale IP fails loudly, never silently wrong. Ships
-     in the tracked `client/.env.production`, so it goes live on deploy with no
-     hPanel step (an hPanel env var overrides it if ever needed). GUARD: the pin
-     only engages when `API_ORIGIN` is explicitly set AND not localhost — without
-     that, a local `next start` (which also loads .env.production) would pin the
-     default localhost API to the PRODUCTION server. Verified both ways via
-     `next start`: manifest pointed at an unresolvable host hangs without the pin
-     and answers 3/3 with it; local start without API_ORIGIN skips the pin. NOTE:
-     rewrite DESTINATIONS are baked into `.next/routes-manifest.json` at build time
-     (runtime `API_ORIGIN` changes need a rebuild), but the PIN is applied when
-     next.config loads at `next start`, so changing/removing it only needs a restart.
+  3. **`API_ORIGIN_PIN_IP` DNS pin, in `instrumentation.ts`** (NOT next.config —
+     on Hostinger next.config.ts is baked at build and NOT re-evaluated by the
+     serving process, so config side effects silently never run in production;
+     proven via the `/pin-status` diagnostic route, whose `pin_ran_in_this_process`
+     stayed false until the patch moved into `register()`). Patches `dns.lookup`
+     for the API hostname so the server-side hop connects to the origin server
+     (156.67.222.87) instead of the hCDN anycast edge: no more unsolvable
+     server-side bot challenge, one less WAN round trip per request. TLS + SNI +
+     cert validation unchanged, so a stale IP fails loudly. Ships in the tracked
+     `client/.env.production` (hPanel env overrides it); GUARD: only engages when
+     `API_ORIGIN` is explicitly set and non-local, so a local `next start` can
+     never pin localhost to prod. `API_ORIGIN` itself must NOT go into
+     .env.production: production-mode LOCAL builds would bake rewrites pointing at
+     the prod API. It did NOT stop the body-stripping (that was never the edge).
+  4. **THE actual kill: /api and /uploads are served by buffering route handlers**
+     (`app/api/[...path]/route.ts`, `app/uploads/[...path]/route.ts` →
+     `lib/api-proxy.ts`), replacing the next.config rewrites. The proxy buffers the
+     upstream response (`arrayBuffer`) and re-emits it as a Next-generated
+     response, which takes the proven-reliable path; hop-by-hop +
+     content-encoding/length headers stripped, `set-cookie` copied per value
+     (`getSetCookie`), 204/205/304 sent body-less, 30s upstream timeout. Socket.IO
+     stays on the (flaky) rewrite on purpose: long-polling self-heals from a lost
+     body, and a route handler can't reliably serve the trailing-slash
+     `/socket.io/` form. After deploy: **0/60 empty** on /api/health (was 17/60),
+     0/20 on /api/menu, 0/15 on image blobs; login/JSON/binary/multipart/404 all
+     verified headless (5/5) plus the stripped-response suite (8/8) locally.
+- Diagnostics kept in the app: `GET /pin-status` (pin env + whether the serving
+  process ran the pin + what a server-side fetch to the API sees) and the
+  `x-pin-state` response header on /login (build-time pin state). Dev-only gotcha:
+  Turbopack logs an "Ecmascript file had an error" warning for `node:dns` in
+  instrumentation.ts (edge-runtime static analysis); it is noise — the
+  `NEXT_RUNTIME === "nodejs"` guard prevents edge execution and prod is verified.
 - **Owner actions**: purge the hCDN cache after deploy (sw.js changed); remove the
   now-unused `NEXT_PUBLIC_API_ORIGIN` from the hPanel Web app when convenient. If
   Hostinger migrates the account to a new server, update or remove the pin in
   `client/.env.production`. Worth a support ticket with the two request IDs above.
 - `NEXT_PUBLIC_API_ORIGIN` is dead code since batch 9 (socket is same-origin always);
   DEPLOYMENT-HOSTINGER.md step 5 + verify checklist updated to match reality.
+- Verification gotchas from this session: hPanel serves `public/` files ~40s after a
+  push (git checkout) while the Node app restart lands minutes later — a new
+  `sw.js` is NOT proof the new server code is live; `/api/products` returns a bare
+  ARRAY and avatar endpoints return `{user}`, so curl the API before writing
+  assertions; Express's default 404 for unknown /api paths is an HTML "Cannot GET"
+  page, which through the proxy is correct passthrough, not a Next 404.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
