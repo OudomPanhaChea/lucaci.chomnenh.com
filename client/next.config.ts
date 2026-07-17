@@ -18,12 +18,15 @@ const nextConfig: NextConfig = {
   // in production Next 308-redirects that to /socket.io?... BEFORE the
   // rewrite runs, which breaks the polling handshake (header stuck Offline).
   skipTrailingSlashRedirect: true,
-  // Same-origin path routing (like production behind nginx): /api and
-  // /uploads proxy to the Express server, so cookies just work.
+  // Same-origin path routing. /api and /uploads are served by buffering route
+  // handlers (app/api/[...path], app/uploads/[...path] -> lib/api-proxy.ts),
+  // NOT rewrites: on Hostinger, bodies streamed through the rewrite proxy are
+  // dropped 30-45% of the time (2026-07-17). Only Socket.IO stays on the
+  // rewrite; its long-poll transport recovers from a lost body on its own,
+  // and a route handler cannot reliably serve the /socket.io/ trailing-slash
+  // form the client uses.
   async rewrites() {
     return [
-      { source: "/api/:path*", destination: `${API_ORIGIN}/api/:path*` },
-      { source: "/uploads/:path*", destination: `${API_ORIGIN}/uploads/:path*` },
       { source: "/socket.io/:path*", destination: `${API_ORIGIN}/socket.io/:path*` },
     ];
   },
