@@ -134,14 +134,26 @@ Create the Node.js website on `lucaci.chomnenh.com`:
 
 ```env
 API_ORIGIN=https://api-lucaci.chomnenh.com
-NEXT_PUBLIC_API_ORIGIN=https://api-lucaci.chomnenh.com
+API_ORIGIN_PIN_IP=156.67.222.87
 NEXT_PUBLIC_SITE_URL=https://lucaci.chomnenh.com
 ```
 
-`NEXT_PUBLIC_API_ORIGIN` makes the browser open its Socket.IO connection
-straight to the API host instead of through the Next proxy (which broke the
-realtime "Live" pill in production: Next 308-redirects `/socket.io/` before
-the rewrite runs). The API's CORS (`CLIENT_ORIGIN`) already allows it.
+`NEXT_PUBLIC_API_ORIGIN` is no longer used (2026-07-16): Socket.IO connects
+same-origin through the Next rewrite, riding the app's hCDN challenge
+clearance. Remove the variable if it is still set.
+
+`API_ORIGIN_PIN_IP` (2026-07-17) makes the Next server resolve the API
+hostname to the origin server's own IP instead of the hCDN anycast edge, so
+the server-to-server rewrite hop (`/api`, `/uploads`, `/socket.io`) stops
+crossing the CDN a second time. That second crossing is where the edge (a)
+answered with a bot challenge no server-side request can solve and (b)
+intermittently stripped response bodies (200 + `Content-Length: 0`, verified
+live 2026-07-17: up to 1 in 3 requests in bursts, the cause of random
+logouts, blank pages, and "couldn't load" errors under multi-user load).
+TLS, SNI, and certificate validation are unchanged, so a wrong IP fails
+loudly instead of hitting the wrong app. Find the current IP in hPanel
+(the website's A record / server IP); if Hostinger migrates the account,
+update or remove the variable and restart the Web app.
 
 Do NOT set `NODE_ENV=production` on the client app: npm then installs without
 devDependencies and `next build` breaks. `next build`/`next start` set
@@ -163,9 +175,9 @@ remote DB, if remote MySQL access is enabled in hPanel.)
 
 - [ ] Login at `https://lucaci.chomnenh.com/login`, then change the owner password
       (Profile page)
-- [ ] Header shows **Live** (Socket.IO connecting directly to the API host
-      via `NEXT_PUBLIC_API_ORIGIN`; falls back to the same-origin proxy path,
-      which works since `skipTrailingSlashRedirect` in `next.config.ts`)
+- [ ] Header shows **Live** (Socket.IO long-polling same-origin through the
+      Next rewrite; needs `skipTrailingSlashRedirect` in `next.config.ts` and
+      `addTrailingSlash: false` in `server/config/socket.js`)
 - [ ] Upload a product photo; its URL should be `/uploads/img/<n>` and it
       should survive a redeploy (it lives in the DB)
 - [ ] Camera barcode scanning works (needs the HTTPS cert from step 1)

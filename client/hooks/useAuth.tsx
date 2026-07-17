@@ -47,6 +47,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .get("/auth/me")
         .then(({ data }) => {
           if (cancelled) return;
+          // A 200 with no user in it is a mangled response (the edge has been
+          // seen stripping bodies), not an answer: a real signed-out session
+          // gets a 401. Treat it like the network errors below, never as
+          // "logged out" — that wipes a valid session and the cart with it.
+          if (!data?.user) {
+            setReconnecting(true);
+            timer = setTimeout(() => load(attempt + 1), Math.min(1000 * 2 ** attempt, 10000));
+            return;
+          }
           setUser(data.user);
           if (data.token) connectSocket(data.token);
           setReconnecting(false);
@@ -89,6 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await new Promise((r) => setTimeout(r, 1500));
       ({ data } = await attempt());
     }
+    // Same stripped-body guard as the session check: a "successful" login with
+    // no user would leave the form silently stuck.
+    if (!data?.user) throw new Error("Login did not complete, please try again");
     setUser(data.user);
     if (data.token) connectSocket(data.token);
   }, []);

@@ -93,6 +93,21 @@ const PRECACHE_ROUTES = [
   "/admin/staff",
 ];
 
+// Hostinger's edge intermittently strips a response's body and rewrites
+// Content-Length to 0 while keeping status 200 and every other header
+// (verified live 2026-07-17, bursts up to 1 in 3 on the /api and /uploads
+// rewrite path). Caching one of those makes the breakage PERMANENT for this
+// tablet: cache-first never revisits the network on a hit, so a stripped
+// image or chunk would serve broken forever. Zero-length 200s are therefore
+// never stored anywhere. Responses without a Content-Length (chunked) pass.
+function isCacheable(response) {
+  return (
+    response.ok &&
+    response.status === 200 &&
+    response.headers.get("content-length") !== "0"
+  );
+}
+
 // addAll is all-or-nothing: one flaky request and the whole install rejects,
 // leaving the tablet with NO worker and no fallback at all — the opposite of the
 // goal. Cache what we can and let the rest fill in on first visit.
@@ -102,12 +117,25 @@ async function cacheAllSettled(cacheName, urls) {
     urls.map(async (url) => {
       try {
         const response = await fetch(url, { cache: "no-store" });
-        if (response.ok && response.status === 200) await cache.put(url, response);
+        if (isCacheable(response)) await cache.put(url, response);
       } catch {
         /* fills in on first visit */
       }
     }),
   );
+}
+
+// One-time sweep on each activation for entries cached before the zero-length
+// guard existed (or that slipped past it): without this, a tablet that already
+// cached a stripped response keeps serving it until someone clears site data.
+async function purgeEmptyCacheEntries() {
+  for (const name of [SHELL_CACHE, ASSET_CACHE, IMAGE_CACHE, PAGE_CACHE]) {
+    const cache = await caches.open(name);
+    for (const request of await cache.keys()) {
+      const response = await cache.match(request);
+      if (response && (await response.blob()).size === 0) await cache.delete(request);
+    }
+  }
 }
 
 self.addEventListener("install", (event) => {
@@ -134,6 +162,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(keys.filter((k) => !keep.includes(k)).map((k) => caches.delete(k))),
       )
+      .then(() => purgeEmptyCacheEntries())
       .then(() => self.clients.claim()),
   );
 });
@@ -145,7 +174,7 @@ async function cacheFirst(request, cacheName) {
   const hit = await cache.match(request);
   if (hit) return hit;
   const response = await fetch(request);
-  if (response.ok && response.status === 200) {
+  if (isCacheable(response)) {
     cache.put(request, response.clone());
   }
   return response;
@@ -193,7 +222,7 @@ async function handleDocument(request) {
 
   try {
     const response = await fetchDocument(request);
-    if (shell && response.status === 200) {
+    if (shell && isCacheable(response)) {
       const cache = await caches.open(PAGE_CACHE);
       // Key by URL string: a navigate Request carries mode/headers we do not
       // want influencing the match, and the RSC variant of this URL must never
@@ -239,7 +268,7 @@ async function networkFirst(request, cacheName) {
   try {
     const response = await fetch(request);
     if (GATEWAY_ERRORS.includes(response.status)) throw new Error("origin unavailable");
-    if (response.ok && response.status === 200) cache.put(request, response.clone());
+    if (isCacheable(response)) cache.put(request, response.clone());
     return response;
   } catch (err) {
     const hit = await cache.match(request);

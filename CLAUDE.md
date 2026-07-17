@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-16 (POS cart survives a reload; POS toast audit + clamp feedback)
+> Last updated: 2026-07-17 (hCDN body-stripping root-caused; stripped-response retries + API_ORIGIN_PIN_IP)
 
 ## 1. What this project is
 
@@ -1104,6 +1104,66 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
 - If Hostinger ever exposes a bot-protection toggle or support disables the challenge,
   the direct-socket connection (websocket, less traffic) can come back — but only
   with a fallback, never as the sole path.
+
+### Done (2026-07-17): "couldn't load" root cause no. 4 = the edge STRIPS response bodies
+- **Reproduced live with curl**: in bursts up to 1 in 3 same-origin `/api` responses
+  arrive as `200 OK` + `Content-Length: 0` with every other header intact, including
+  the ETag OF THE MISSING BODY and the API's helmet/CORS headers (so the request
+  reached Express and the body was dropped on the way back). Hits any URL: virgin
+  paths, 401s, `/api/menu`. NEVER happens hitting `api-lucaci` directly (60+ probes
+  clean), never on `/_next/static`. The differentiator is the rewrite's
+  server-to-server hop, which transits Hostinger's hCDN a SECOND time (doubled
+  `x-hcdn-cache-status` headers prove it). Not ETag revalidation (virgin URLs get it
+  too), no edge-node correlation; it is Hostinger's edge misbehaving, request IDs
+  `8afe85322e69dadaab295414e7a56080-kul-edge3` / `f4eff60105f9bb8bb50bbf3c093a619e-kul-edge3`.
+- **Why it looked like "the page reload issue"**: an empty body is still a 200, so
+  `/auth/me` "succeeded" with `data.user === undefined` → `loading=false`, user null →
+  admin layout kicked staff to `/login` mid-shift with a perfectly valid cookie
+  (bypassing the batch-4 "only 401 = signed out" rule, which only guards the reject
+  path). Also: empty list responses crashed pages (`res.data.products.map`), an empty
+  login response left the form stuck ("press login twice"), and empty socket polls
+  dropped realtime. Multi-user slowness is the same lever: every API call was making
+  TWO public CDN round trips, and more users = more edge traffic = more challenges
+  and more stripped bursts.
+- Fixes shipped, all three verified:
+  1. **`services/api.ts` treats a stripped response as a failure** (`isBodyStripped`:
+     200 + JSON content-type + empty data; our API never legitimately does that).
+     GETs auto-retry twice with backoff then reject; non-GETs reject immediately and
+     are NEVER auto-retried (the request may have succeeded server-side; replaying a
+     checkout would sell twice). `useAuth` gained belt-and-braces guards: a 200
+     `/auth/me` without a user retries like a network error (never treated as signed
+     out), a login "success" without a user throws. Headless-verified 8/8
+     (scratchpad verify-stripped.js): stripped login POST auto-recovers with exactly
+     2 calls, stripped `/auth/me` twice keeps the session on /admin/pos, stripped
+     products GET still renders 10 rows, permanently-stripped GET stops after 3
+     attempts per request with no logout/crash.
+  2. **`sw.js` never caches zero-length 200s** (`isCacheable` checks
+     `content-length !== "0"`; chunked responses without the header pass) — before
+     this, one stripped `/uploads/img/*` response would be cached cache-first,
+     i.e. a PERMANENTLY broken product image on that tablet. `activate` now sweeps
+     all four caches and deletes any zero-byte entry already poisoned.
+  3. **`API_ORIGIN_PIN_IP` in `next.config.ts`**: patches `dns.lookup` for the API
+     hostname so the rewrite hop connects to the origin server (156.67.222.87)
+     instead of resolving to the hCDN anycast edge. Kills the second CDN transit
+     entirely: no server-side challenge, no body-stripping, one less WAN round trip
+     per API/socket/upload request. TLS + SNI + cert validation unchanged (the cert
+     is for the hostname), so a stale IP fails loudly, never silently wrong. Ships
+     in the tracked `client/.env.production`, so it goes live on deploy with no
+     hPanel step (an hPanel env var overrides it if ever needed). GUARD: the pin
+     only engages when `API_ORIGIN` is explicitly set AND not localhost — without
+     that, a local `next start` (which also loads .env.production) would pin the
+     default localhost API to the PRODUCTION server. Verified both ways via
+     `next start`: manifest pointed at an unresolvable host hangs without the pin
+     and answers 3/3 with it; local start without API_ORIGIN skips the pin. NOTE:
+     rewrite DESTINATIONS are baked into `.next/routes-manifest.json` at build time
+     (runtime `API_ORIGIN` changes need a rebuild), but the PIN is applied when
+     next.config loads at `next start`, so changing/removing it only needs a restart.
+- **Owner actions**: purge the hCDN cache after deploy (sw.js changed); remove the
+  now-unused `NEXT_PUBLIC_API_ORIGIN` from the hPanel Web app when convenient. If
+  Hostinger migrates the account to a new server, update or remove the pin in
+  `client/.env.production`. Worth a support ticket with the two request IDs above.
+- `NEXT_PUBLIC_API_ORIGIN` is dead code since batch 9 (socket is same-origin always);
+  DEPLOYMENT-HOSTINGER.md step 5 + verify checklist updated to match reality.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
