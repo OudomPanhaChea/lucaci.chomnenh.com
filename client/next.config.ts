@@ -1,49 +1,17 @@
 import type { NextConfig } from "next";
-import dns from "node:dns";
 
 const API_ORIGIN = process.env.API_ORIGIN || "http://localhost:5001";
 
-// Optional escape hatch from Hostinger's hCDN edge on the server-to-server
-// rewrite hop (set API_ORIGIN_PIN_IP in the hPanel Web app, currently
-// 156.67.222.87). Every /api, /uploads and /socket.io request below is proxied
-// by THIS Node process to API_ORIGIN; by default that hostname resolves to the
-// hCDN anycast edge, which (a) can answer with a bot challenge no server can
-// solve and (b) intermittently strips response bodies (200 + Content-Length: 0,
-// verified live 2026-07-17). Pinning the lookup to the origin server's IP keeps
-// the URL, SNI and certificate validation exactly as they were (the cert really
-// is for this hostname), so it is a routing change, not a security downgrade.
-// This file executes in the process that runs the rewrites, so patching
-// dns.lookup here covers net/tls/undici. If Hostinger ever migrates the account
-// to a new server, update or remove the env var; a wrong IP fails loudly
-// (connection refused / cert mismatch), it cannot silently hit the wrong app.
-// The pin only engages when API_ORIGIN is explicitly configured (hPanel sets
-// it; local dev/start does not): .env.production carries the pin IP, and
-// without this guard a local `next start` would pin the default localhost
-// API_ORIGIN to the production server, silently pointing local tests at prod.
-const PIN_IP = process.env.API_ORIGIN_PIN_IP;
+// The API_ORIGIN_PIN_IP DNS pin lives in instrumentation.ts, NOT here: on
+// Hostinger this file's output is baked at build and the file is not
+// re-evaluated by the serving process (verified via /pin-status 2026-07-17),
+// so side effects here silently never happen in production. pinEngaged is
+// computed for the x-pin-state diagnostic header only.
 const pinEngaged = Boolean(
-  PIN_IP &&
+  process.env.API_ORIGIN_PIN_IP &&
     process.env.API_ORIGIN &&
     !["localhost", "127.0.0.1"].includes(new URL(API_ORIGIN).hostname),
 );
-if (pinEngaged) {
-  console.log(`[api-pin] resolving ${new URL(API_ORIGIN).hostname} -> ${PIN_IP}`);
-  // Runtime marker for /pin-status: proves THIS process ran the pin block
-  // (config could be evaluated in a different process than the one serving).
-  (globalThis as { __apiPinActive?: boolean }).__apiPinActive = true;
-  const pinnedHost = new URL(API_ORIGIN).hostname;
-  const realLookup = dns.lookup.bind(dns);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (dns as { lookup: any }).lookup = (hostname: string, options: any, callback?: any) => {
-    if (hostname !== pinnedHost) return realLookup(hostname, options, callback);
-    if (typeof options === "function") {
-      callback = options;
-      options = undefined;
-    }
-    if (options && options.all) return callback(null, [{ address: PIN_IP, family: 4 }]);
-    return callback(null, PIN_IP, 4);
-  };
-}
 
 const nextConfig: NextConfig = {
   // Socket.IO always requests /socket.io/?EIO=4... with a trailing slash;
