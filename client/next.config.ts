@@ -28,6 +28,9 @@ const pinEngaged = Boolean(
 );
 if (pinEngaged) {
   console.log(`[api-pin] resolving ${new URL(API_ORIGIN).hostname} -> ${PIN_IP}`);
+  // Runtime marker for /pin-status: proves THIS process ran the pin block
+  // (config could be evaluated in a different process than the one serving).
+  (globalThis as { __apiPinActive?: boolean }).__apiPinActive = true;
   const pinnedHost = new URL(API_ORIGIN).hostname;
   const realLookup = dns.lookup.bind(dns);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
