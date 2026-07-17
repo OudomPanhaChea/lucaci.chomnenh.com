@@ -32,16 +32,30 @@ const STRIP = new Set([
 
 const NULL_BODY_STATUSES = [101, 204, 205, 304];
 
+// During the body-stripping outage (2026-07-17) browsers cached empty 200
+// /api bodies together with the ETag of the FULL body Express computed. With
+// no Cache-Control on API responses, every later fetch revalidated with
+// If-None-Match, Express answered 304, and the browser re-served its empty
+// cached body indefinitely: pages showed "no data" while curl saw everything.
+// So for /api: never forward conditional headers (upstream always returns a
+// full 200, which replaces the poisoned entry) and mark responses no-store
+// (browsers stop caching API JSON at all). /uploads keeps its immutable
+// caching by design.
+const CONDITIONAL = ["if-none-match", "if-modified-since"];
+
 export async function proxyToApi(req: NextRequest, prefix: string, path: string[] = []) {
   const target =
     `${API_ORIGIN}/${prefix}` +
     (path.length ? `/${path.map(encodeURIComponent).join("/")}` : "") +
     req.nextUrl.search;
 
+  const uncacheable = prefix === "api";
+
   const headers = new Headers();
   req.headers.forEach((value, key) => {
     if (!STRIP.has(key)) headers.set(key, value);
   });
+  if (uncacheable) for (const h of CONDITIONAL) headers.delete(h);
 
   const method = req.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
@@ -63,6 +77,11 @@ export async function proxyToApi(req: NextRequest, prefix: string, path: string[
   // cookies into one comma-joined string, which browsers misparse.
   for (const cookie of upstream.headers.getSetCookie()) {
     respHeaders.append("set-cookie", cookie);
+  }
+  if (uncacheable) {
+    respHeaders.delete("etag");
+    respHeaders.delete("last-modified");
+    respHeaders.set("cache-control", "no-store");
   }
 
   const buf = await upstream.arrayBuffer();

@@ -1189,6 +1189,29 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   assertions; Express's default 404 for unknown /api paths is an HTML "Cannot GET"
   page, which through the proxy is correct passthrough, not a Next 404.
 
+### Done (2026-07-17, batch 2): body-stripping aftermath = poisoned browser caches
+- **Symptom**: production pages rendered logged-in but EMPTY (0 products, "Client not
+  found" for an existing client) while curl through the same proxy returned full data,
+  and the DB was intact. **Cause**: during the stripping outage, browsers cached empty
+  200 /api bodies together with the ETag Express computed from the FULL body. API
+  responses carried no Cache-Control, so on every later fetch the browser revalidated
+  with If-None-Match, Express matched its current etag and answered **304 Not
+  Modified**, and the browser re-served its cached EMPTY body — indefinitely, surviving
+  reloads (this was also the tail of "couldn't load": /auth/me and list fetches kept
+  "succeeding" empty). Proven live: replaying the products etag through the proxy got
+  304 + 0 bytes.
+- **Fix in `lib/api-proxy.ts`** (prefix `api` only): forwarded requests drop
+  `if-none-match`/`if-modified-since` so upstream ALWAYS answers a full 200 — the
+  browser's first fetch after deploy replaces the poisoned entry with real data,
+  no user action needed; responses drop `etag`/`last-modified` and set
+  `Cache-Control: no-store` so browsers never cache API JSON again. `/uploads` keeps
+  its immutable 30d caching on purpose (verified untouched).
+- Verified locally against dev on :3000: proxied /api/products = 200 + no-store +
+  no etag + full body even WITH a matching If-None-Match (upstream direct = 304 0b);
+  /uploads/img/25 still `public, max-age=2592000, immutable` + etag. `next build`
+  passes. No websocket involvement: Socket.IO has been same-origin long-polling since
+  batch 9 (the Live pill in the owner's screenshots was green).
+
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
   unverified on a real iPad. If iOS install ever misbehaves, move it to an
