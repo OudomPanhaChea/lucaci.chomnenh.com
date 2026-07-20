@@ -160,10 +160,13 @@ export async function dashboard(req, res) {
   const [[{ today_ymd }]] = await pool.query(
     "SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today_ymd"
   );
+  // Receivables = open invoices + old (pre-system) owing on client accounts.
   const [[receivables]] = await pool.query(
-    `SELECT COALESCE(SUM(total - amount_paid), 0) AS total, COUNT(*) AS invoices
+    `SELECT COALESCE(SUM(total - amount_paid), 0)
+              + (SELECT COALESCE(SUM(opening_owing), 0) FROM clients WHERE business_id = ?) AS total,
+            COUNT(*) AS invoices
      FROM sales WHERE business_id = ? AND status IN ('unpaid','partial')`,
-    [BUSINESS_ID]
+    [BUSINESS_ID, BUSINESS_ID]
   );
   const [recent_sales] = await pool.query(
     `SELECT id, invoice_number, client_name, cashier_name, total, payment_method, status, created_at

@@ -41,7 +41,16 @@ export default function PaymentsList({
         >
           <div className="min-w-0">
             <p className="flex items-center gap-2">
-              <StatusBadge status={p.type === "sale" ? p.method : p.type} />
+              <StatusBadge
+                status={p.type === "sale" ? p.method : p.type}
+                label={
+                  p.type === "owing_add"
+                    ? "Old owing"
+                    : p.type === "owing_pay"
+                      ? "Owing paid"
+                      : undefined
+                }
+              />
               {Boolean(p.is_paydown) && (
                 <span
                   title="Received after the sale: this payment pays down what was owing"
@@ -59,10 +68,14 @@ export default function PaymentsList({
             </p>
           </div>
           <span className="flex items-center gap-2">
+            {/* owing_add is debt recorded, not money in: no "+", rose */}
             <span className={`tabular font-medium ${
-              Number(p.amount) < 0 ? "text-rose-600 dark:text-rose-400" : "text-fg"
+              Number(p.amount) < 0 || p.type === "owing_add"
+                ? "text-rose-600 dark:text-rose-400"
+                : "text-fg"
             }`}>
-              {Number(p.amount) < 0 ? "" : "+"}{money(p.amount)}
+              {Number(p.amount) < 0 || p.type === "owing_add" ? "" : "+"}
+              {money(p.amount)}
             </span>
             {p.sale_id && (
               <ChevronRight className="h-4 w-4 shrink-0 text-fg-subtle transition-colors duration-150 group-hover:text-fg" />

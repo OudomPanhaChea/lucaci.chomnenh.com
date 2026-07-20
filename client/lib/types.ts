@@ -64,6 +64,7 @@ export interface Client {
   address: string | null;
   note: string | null;
   credit_balance: number;
+  opening_owing: number; // remaining pre-system debt (see owing_add/owing_pay)
   purchase_count?: number;
   total_spent?: number; // money actually received (excludes owing)
   total_items?: number; // pieces bought across non-voided sales
@@ -80,7 +81,9 @@ export interface Payment {
   id: number;
   sale_id?: number | null;
   invoice_number?: string | null;
-  type: "sale" | "deposit" | "refund";
+  // owing_add = pre-system debt recorded (not money); owing_pay = money
+  // received against that debt
+  type: "sale" | "deposit" | "refund" | "owing_add" | "owing_pay";
   method: LedgerMethod;
   amount: number;
   received_by: string | null;
@@ -142,7 +145,8 @@ export interface ClientStatement {
   // Partner bonus awards in the period; omitted for cashiers (manager-only data)
   bonuses?: Bonus[];
   period: { invoice_count: number; total_items: number; purchased: number; paid: number; outstanding: number };
-  overall: { outstanding: number; credit_balance: number };
+  // outstanding includes opening_owing; opening_owing is the old-debt part
+  overall: { outstanding: number; opening_owing: number; credit_balance: number };
 }
 
 // ── Partner bonuses (record + downloadable paper; no ledger impact) ────────

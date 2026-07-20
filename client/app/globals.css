@@ -160,6 +160,21 @@ body {
   display: none;
 }
 
+/* POS product-card cart badge: replays on every quantity change (the badge is
+   remounted with a changing key) so an add visibly lands on the card. The
+   global prefers-reduced-motion rule below flattens it for those users. */
+@keyframes badge-pop {
+  from {
+    transform: scale(1.45);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+.badge-pop {
+  animation: badge-pop 0.2s ease-out;
+}
+
 /* ── Safe areas (installed app on iPad / iPhone) ──────────────────────────
    viewport-fit=cover (app/layout.tsx) lets the page paint edge to edge, under
    the home indicator and the display's rounded corners. These insets are 0 in

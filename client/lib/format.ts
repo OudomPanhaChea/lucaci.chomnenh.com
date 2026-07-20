@@ -12,8 +12,10 @@ export const money = (n: number | string | null | undefined) => {
 export const num = (n: number | string | null | undefined) =>
   Number(n ?? 0).toLocaleString("en-US");
 
+// The smallest riel bill in circulation is 100៛, so displayed KHR amounts
+// round to the nearest 100 (tens digit 5 and above rounds up).
 export const khr = (usd: number, rate: number) =>
-  `${Math.round(Number(usd) * Number(rate)).toLocaleString("en-US")}៛`;
+  `${(Math.round((Number(usd) * Number(rate)) / 100) * 100).toLocaleString("en-US")}៛`;
 
 export const unitPrice = (sellPrice: number, discountPct: number) =>
   Math.round(sellPrice * (1 - discountPct / 100) * 100) / 100;

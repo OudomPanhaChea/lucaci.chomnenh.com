@@ -9,6 +9,13 @@ import api, { apiError } from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useAuth } from "@/hooks/useAuth";
 import { SectionHeader } from "@/components/ui/section-header";
+import ProductSortMenu from "@/components/product-sort-menu";
+import {
+  sortProducts,
+  readStoredSort,
+  storeSort,
+  type ProductSortKey,
+} from "@/lib/product-sort";
 import { ProductTable } from "@/components/inventory/product-table";
 import { ProductFormModal } from "@/components/inventory/product-form-modal";
 import { CategoriesDrawer } from "@/components/inventory/categories-drawer";
@@ -26,6 +33,12 @@ function InventoryPage() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [lowOnly, setLowOnly] = useState(params.get("low_stock") === "1");
+  // "newest" mirrors the API's display_number DESC order, so nothing moves
+  // until the user actually picks a sort; the pick is remembered per page.
+  const [sort, setSort] = useState<ProductSortKey>("newest");
+  useEffect(() => {
+    setSort(readStoredSort("inventory", "newest"));
+  }, []);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -48,17 +61,20 @@ function InventoryPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return products.filter(
-      (p) =>
-        (!categoryId || p.category_id === categoryId) &&
-        (!lowOnly ||
-          (p.stock_qty !== null && p.stock_qty <= p.low_stock_alert)) &&
-        (!q ||
-          p.name.toLowerCase().includes(q) ||
-          p.barcode?.includes(q) ||
-          p.sku?.toLowerCase().includes(q)),
+    return sortProducts(
+      products.filter(
+        (p) =>
+          (!categoryId || p.category_id === categoryId) &&
+          (!lowOnly ||
+            (p.stock_qty !== null && p.stock_qty <= p.low_stock_alert)) &&
+          (!q ||
+            p.name.toLowerCase().includes(q) ||
+            p.barcode?.includes(q) ||
+            p.sku?.toLowerCase().includes(q)),
+      ),
+      sort,
     );
-  }, [products, search, categoryId, lowOnly]);
+  }, [products, search, categoryId, lowOnly, sort]);
 
   const removeProduct = async (p: Product) => {
     try {
@@ -116,6 +132,13 @@ function InventoryPage() {
           value={categoryId ?? undefined}
           onChange={(v) => setCategoryId(v ?? null)}
           options={categories.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <ProductSortMenu
+          value={sort}
+          onChange={(k) => {
+            setSort(k);
+            storeSort("inventory", k);
+          }}
         />
         <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
           <Switch size="small" checked={lowOnly} onChange={setLowOnly} /> Low

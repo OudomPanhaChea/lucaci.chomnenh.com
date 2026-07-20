@@ -13,11 +13,13 @@ export async function listClients(req, res) {
   }
   // total_spent is money actually received (amount_paid), so it never
   // includes what the client still owes; total_items counts base pieces.
+  // outstanding includes opening_owing (pre-system debt) so every consumer
+  // (client cards, POS "owes" hint) sees the client's whole position.
   const [rows] = await pool.query(
     `SELECT c.*,
             COUNT(CASE WHEN s.status <> 'voided' THEN s.id END)      AS purchase_count,
             COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.amount_paid END), 0) AS total_spent,
-            COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.total - s.amount_paid END), 0) AS outstanding,
+            COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.total - s.amount_paid END), 0) + c.opening_owing AS outstanding,
             MAX(s.created_at)                                        AS last_purchase_at,
             (SELECT COALESCE(SUM(si.quantity), 0)
                FROM sale_items si JOIN sales s2 ON s2.id = si.sale_id
@@ -179,7 +181,11 @@ export async function clientStatement(req, res) {
       total_items: Number(total_items),
       outstanding: Number(period.purchased) - Number(period.paid),
     },
-    overall: { outstanding: Number(overall.outstanding), credit_balance: Number(client.credit_balance) },
+    overall: {
+      outstanding: Number(overall.outstanding) + Number(client.opening_owing),
+      opening_owing: Number(client.opening_owing),
+      credit_balance: Number(client.credit_balance),
+    },
   });
 }
 
@@ -216,6 +222,98 @@ export async function addDeposit(req, res) {
     await conn.commit();
     emitToAdmins("client:changed", { type: "update", id: client.id });
     res.status(201).json({ message: "Deposit recorded", credit_balance });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+const money2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+// Old owing: debt from before this system, entered as a plain amount with no
+// items or invoice (manager-gated in routes). The ledger row records WHO added
+// it and when; its amount is a debt, not money moving.
+export async function addOpeningOwing(req, res) {
+  const { amount, note = null } = req.body || {};
+  const amt = money2(amount);
+  if (!(amt > 0)) return res.status(400).json({ message: "Owing amount must be greater than zero" });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[client]] = await conn.query(
+      "SELECT id FROM clients WHERE id = ? AND business_id = ? FOR UPDATE", [req.params.id, BUSINESS_ID]
+    );
+    if (!client) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Client not found" });
+    }
+    await conn.query(
+      "UPDATE clients SET opening_owing = opening_owing + ? WHERE id = ?", [amt, client.id]
+    );
+    await conn.query(
+      `INSERT INTO payments (business_id, client_id, sale_id, type, method, amount, user_id, received_by, note)
+       VALUES (?, ?, NULL, 'owing_add', 'other', ?, ?, ?, ?)`,
+      [BUSINESS_ID, client.id, amt, req.user.id, req.user.name, note]
+    );
+    const [[{ opening_owing }]] = await conn.query(
+      "SELECT opening_owing FROM clients WHERE id = ?", [client.id]
+    );
+    await conn.commit();
+    emitToAdmins("client:changed", { type: "update", id: client.id });
+    res.status(201).json({ message: "Old owing recorded", opening_owing });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// Money received against old owing. Any role can take the payment, like any
+// other money in; overpaying the remaining balance is rejected.
+export async function payOpeningOwing(req, res) {
+  const { amount, method = "cash", note = null } = req.body || {};
+  const amt = money2(amount);
+  if (!(amt > 0)) return res.status(400).json({ message: "Payment amount must be greater than zero" });
+  if (!["cash", "khqr", "card", "bank", "other"].includes(method)) {
+    return res.status(400).json({ message: "Invalid payment method" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[client]] = await conn.query(
+      "SELECT id, opening_owing FROM clients WHERE id = ? AND business_id = ? FOR UPDATE",
+      [req.params.id, BUSINESS_ID]
+    );
+    if (!client) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Client not found" });
+    }
+    const remaining = Number(client.opening_owing);
+    if (amt > remaining) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: `Only ${remaining.toFixed(2)} of old owing remains, cannot receive more`,
+      });
+    }
+    await conn.query(
+      "UPDATE clients SET opening_owing = opening_owing - ? WHERE id = ?", [amt, client.id]
+    );
+    await conn.query(
+      `INSERT INTO payments (business_id, client_id, sale_id, type, method, amount, user_id, received_by, note)
+       VALUES (?, ?, NULL, 'owing_pay', ?, ?, ?, ?, ?)`,
+      [BUSINESS_ID, client.id, method, amt, req.user.id, req.user.name, note]
+    );
+    const [[{ opening_owing }]] = await conn.query(
+      "SELECT opening_owing FROM clients WHERE id = ?", [client.id]
+    );
+    await conn.commit();
+    emitToAdmins("client:changed", { type: "update", id: client.id });
+    res.status(201).json({ message: "Payment recorded", opening_owing });
   } catch (err) {
     await conn.rollback();
     throw err;

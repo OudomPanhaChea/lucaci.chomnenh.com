@@ -76,6 +76,8 @@ router.delete("/products/:id", manager, products.deleteProduct);
 router.get("/clients", clients.listClients);
 router.get("/clients/:id/statement", clients.clientStatement);
 router.post("/clients/:id/deposits", clients.addDeposit);
+router.post("/clients/:id/owing", manager, clients.addOpeningOwing);
+router.post("/clients/:id/owing-payments", clients.payOpeningOwing);
 router.post("/clients", clients.createClient);
 router.put("/clients/:id", clients.updateClient);
 router.delete("/clients/:id", manager, clients.deleteClient);

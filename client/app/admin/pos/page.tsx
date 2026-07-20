@@ -40,6 +40,13 @@ import {
 } from "@/lib/pos-cart";
 import { useRealtime } from "@/hooks/useRealtime";
 import BarcodeScanner from "@/components/barcode-scanner";
+import ProductSortMenu from "@/components/product-sort-menu";
+import {
+  sortProducts,
+  readStoredSort,
+  storeSort,
+  type ProductSortKey,
+} from "@/lib/product-sort";
 import Receipt from "@/components/receipt";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -139,6 +146,7 @@ export default function PosPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [sort, setSort] = useState<ProductSortKey>("name_asc");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [clientId, setClientId] = useState<number | null>(null);
   const [discountPct, setDiscountPct] = useState(0);
@@ -146,8 +154,10 @@ export default function PosPage() {
   const [payOpen, setPayOpen] = useState(false);
   const [paying, setPaying] = useState(false);
   const [method, setMethod] = useState<PaymentMethod>("cash");
-  const [received, setReceived] = useState<number | null>(null);
-  const [payAmount, setPayAmount] = useState<number | null>(null); // null = pay in full
+  // Concrete dollars in the "Paying now" box; null = the box is empty. openPay
+  // seeds it with the amount due. Never a "full pay" sentinel: a sentinel made
+  // the input snap between Full and Pay later while the cashier was typing.
+  const [payAmount, setPayAmount] = useState<number | null>(null);
   const [useCredit, setUseCredit] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [quickClientOpen, setQuickClientOpen] = useState(false);
@@ -249,17 +259,39 @@ export default function PosPage() {
     setDiscountPct(0);
   };
 
+  // The chosen sort is remembered per page: read it back once on mount (not in
+  // the initializer, localStorage does not exist during server render).
+  useEffect(() => {
+    setSort(readStoredSort("pos", "name_asc"));
+  }, []);
+  const changeSort = useCallback((k: ProductSortKey) => {
+    setSort(k);
+    storeSort("pos", k);
+  }, []);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return products.filter(
-      (p) =>
-        (!categoryId || p.category_id === categoryId) &&
-        (!q ||
-          p.name.toLowerCase().includes(q) ||
-          p.barcode?.includes(q) ||
-          p.sku?.toLowerCase().includes(q)),
-    ).sort((a, b) => a.name.localeCompare(b.name));
-  }, [products, search, categoryId]);
+    return sortProducts(
+      products.filter(
+        (p) =>
+          (!categoryId || p.category_id === categoryId) &&
+          (!q ||
+            p.name.toLowerCase().includes(q) ||
+            p.barcode?.includes(q) ||
+            p.sku?.toLowerCase().includes(q)),
+      ),
+      sort,
+    );
+  }, [products, search, categoryId, sort]);
+
+  // Quantity of each product already in the cart (summed across its lines in
+  // the units they were entered), so the card can show the add registered.
+  const inCartQty = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const l of cart)
+      m.set(l.product.id, (m.get(l.product.id) ?? 0) + l.quantity);
+    return m;
+  }, [cart]);
 
   // Adding is silent by design: the cart itself is the feedback, and scans
   // already beep. Only a REFUSED add says anything, because that is the case
@@ -410,16 +442,14 @@ export default function PosPage() {
   const creditApplied =
     useCredit && selectedClient ? Math.min(clientCredit, total) : 0;
   const dueAfterCredit = round2(total - creditApplied);
+  // An empty box counts as $0 (pay later needs a client anyway); an amount
+  // above what is due settles the invoice, never overpays it.
   const payingNow =
-    payAmount === null
-      ? dueAfterCredit
-      : Math.min(round2(payAmount), dueAfterCredit);
+    payAmount === null ? 0 : Math.min(round2(payAmount), dueAfterCredit);
   const owing = round2(dueAfterCredit - payingNow);
-  const change = received !== null ? received - payingNow : null;
 
   const openPay = () => {
-    setReceived(null);
-    setPayAmount(null);
+    setPayAmount(total);
     setUseCredit(false);
     setMethod("cash");
     setPayOpen(true);
@@ -440,13 +470,12 @@ export default function PosPage() {
         client_id: clientId,
         discount_pct: discountPct,
         payment_method: method,
-        amount_received: method === "cash" ? received : null,
+        amount_received: null,
         amount_paid: payingNow,
         use_credit: useCredit,
       });
       setLastSale(data);
       discardCart(); // also drops the persisted copy via the save effect
-      setReceived(null);
       setPayAmount(null);
       setUseCredit(false);
       setMethod("cash");
@@ -505,6 +534,7 @@ export default function PosPage() {
           >
             <span className="hidden sm:inline">Scan</span>
           </Button>
+          <ProductSortMenu size="large" value={sort} onChange={changeSort} />
         </div>
 
         <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
@@ -536,6 +566,7 @@ export default function PosPage() {
               {filtered.map((p) => {
                 const price = unitPrice(p.sell_price, p.discount_pct);
                 const out = p.stock_qty !== null && p.stock_qty <= 0;
+                const carted = inCartQty.get(p.id) ?? 0;
                 // In partner mode, surface the largest bulk unit's price on the card
                 const bulk =
                   isPartner && p.units?.length
@@ -550,11 +581,11 @@ export default function PosPage() {
                     // flex-col keeps content top-aligned when the grid row
                     // stretches this card (a bare <button> centers it, which
                     // made images drift down on shorter cards)
-                    className={`group flex flex-col overflow-hidden rounded-xl border border-line bg-surface-raised text-left shadow-card transition-colors duration-200 ${
-                      out ? "opacity-50" : "cursor-pointer hover:border-brand"
-                    }`}
+                    className={`group flex flex-col overflow-hidden rounded-xl border bg-surface-raised text-left shadow-card transition-colors duration-200 ${
+                      carted > 0 ? "border-brand/60" : "border-line"
+                    } ${out ? "opacity-50" : "cursor-pointer hover:border-brand"}`}
                   >
-                    <div className="relative aspect-[1/1] w-full shrink-0 bg-surface-sunken">
+                    <div className="relative aspect-square w-full shrink-0 bg-surface-sunken">
                       {p.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -580,9 +611,21 @@ export default function PosPage() {
                       )}
                     </div>
                     <div className="flex flex-1 flex-col p-2.5">
-                      <p className="truncate text-sm font-medium text-fg">
-                        {p.name}
-                      </p>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <p className="min-w-0 truncate text-sm font-medium text-fg">
+                          {p.name}
+                        </p>
+                        {carted > 0 && (
+                          // key remounts the pill on every quantity change so
+                          // the pop replays: the cashier sees the add land
+                          <span
+                            key={carted}
+                            className="badge-pop tabular shrink-0 rounded-full bg-brand px-1.5 py-0.5 text-center text-[11px] font-semibold leading-none text-brand-foreground"
+                          >
+                            {num(carted)}
+                          </span>
+                        )}
+                      </div>
                       {bulk && (
                         <p className="tabular truncate text-[11px] font-medium text-brand-600 dark:text-brand-400">
                           {bulk.name}: {money(bulk.sell_price)}
@@ -941,12 +984,7 @@ export default function PosPage() {
         confirmLoading={paying}
         okButtonProps={{
           size: "large",
-          disabled:
-            (owing > 0 && !clientId) ||
-            (method === "cash" &&
-              payingNow > 0 &&
-              received !== null &&
-              received < payingNow),
+          disabled: owing > 0 && !clientId,
         }}
       >
         <div className="space-y-4 py-2">
@@ -996,8 +1034,10 @@ export default function PosPage() {
                 checked={useCredit}
                 onChange={(v) => {
                   setUseCredit(v);
-                  setPayAmount(null);
-                  setReceived(null);
+                  // reseed the box with what is now due after credit
+                  setPayAmount(
+                    round2(total - (v ? Math.min(clientCredit, total) : 0)),
+                  );
                 }}
               />
             </label>
@@ -1054,18 +1094,20 @@ export default function PosPage() {
                   <div className="flex gap-1.5">
                     <button
                       type="button"
-                      className={chipCls(payingNow === dueAfterCredit)}
-                      onClick={() => setPayAmount(null)}
+                      className={chipCls(
+                        payAmount !== null &&
+                          round2(payAmount) === dueAfterCredit,
+                      )}
+                      onClick={() => setPayAmount(dueAfterCredit)}
                     >
                       Full
                     </button>
                     <button
                       type="button"
-                      className={chipCls(payAmount !== null && payingNow === 0)}
-                      onClick={() => {
-                        setPayAmount(0);
-                        setReceived(null);
-                      }}
+                      className={chipCls(
+                        payAmount !== null && round2(payAmount) === 0,
+                      )}
+                      onClick={() => setPayAmount(0)}
                     >
                       Pay later
                     </button>
@@ -1077,61 +1119,10 @@ export default function PosPage() {
                   min={0}
                   max={dueAfterCredit}
                   prefix="$"
-                  value={payAmount === null ? dueAfterCredit : payAmount}
-                  onChange={(v) => setPayAmount(v === null ? 0 : Number(v))}
+                  value={payAmount}
+                  onChange={(v) => setPayAmount(v === null ? null : Number(v))}
                 />
               </div>
-              {method === "cash" && payingNow > 0 && (
-                <div>
-                  <p className="mb-1 text-sm text-fg-muted">Cash received</p>
-                  <InputNumber
-                    autoFocus
-                    size="large"
-                    className="!w-full"
-                    min={0}
-                    prefix="$"
-                    value={received}
-                    onChange={(v) => setReceived(v === null ? null : Number(v))}
-                  />
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      className={chipCls(
-                        received !== null && received === payingNow,
-                      )}
-                      onClick={() => setReceived(payingNow)}
-                    >
-                      Exact
-                    </button>
-                    {[5, 10, 20, 50, 100].map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        disabled={d < payingNow}
-                        className={chipCls(received === d)}
-                        onClick={() => setReceived(d)}
-                      >
-                        ${d}
-                      </button>
-                    ))}
-                  </div>
-                  {change !== null && change >= 0 && (
-                    <p className="tabular mt-2 text-sm font-semibold text-fg">
-                      Change: {money(change)}
-                      {settings && (
-                        <span className="ml-1 font-normal text-fg-muted">
-                          ({khr(change, settings.exchange_rate)})
-                        </span>
-                      )}
-                    </p>
-                  )}
-                  {change !== null && change < 0 && (
-                    <p className="tabular mt-2 text-sm text-rose-600 dark:text-rose-400">
-                      Missing {money(Math.abs(change))}
-                    </p>
-                  )}
-                </div>
-              )}
             </>
           )}
 

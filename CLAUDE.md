@@ -90,6 +90,12 @@ Key conventions carried over from WisePOS:
   Voiding writes negative refund mirror rows and restores spent prepaid credit.
   Reports treat revenue as accrual (all non-voided sales) and expose
   `collected`/`outstanding` alongside.
+- **Old owing (2026-07-20):** `clients.opening_owing` = REMAINING pre-system debt
+  entered as a plain amount (no items/invoice; payments types `owing_add` = debt
+  recorded, not money, and `owing_pay` = money received against it). Client
+  `outstanding` everywhere (list, statement overall, dashboard receivables) is
+  invoice outstanding + opening_owing; per-period figures and reports exclude it
+  (it belongs to no period and is never revenue).
 - **Partner/wholesale (2026-07-11):** `clients.client_type` is `normal|partner`.
   Since 2026-07-15 every product names its own base unit (`products.base_unit`,
   default 'pcs': tubes, bottles, ampules ...) used in all displays; "pieces"
@@ -1211,6 +1217,42 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   /uploads/img/25 still `public, max-age=2592000, immutable` + etag. `next build`
   passes. No websocket involvement: Socket.IO has been same-origin long-polling since
   batch 9 (the Live pill in the owner's screenshots was green).
+
+### Done (2026-07-20): old owing + POS UX batch (owner-requested)
+- **Old owing insert + payback** (see the schema bullet in section 3). Migration
+  `2026-07-20-opening-owing.sql` (applied locally; **run on the prod DB in
+  phpMyAdmin BEFORE deploying the API**, it is additive so old code is unaffected).
+  Endpoints: `POST /clients/:id/owing` (manager only, owner's choice) and
+  `POST /clients/:id/owing-payments` (any role, overpay rejected, row-locked like
+  deposits). UI: client details header "Add old owing" (manager), owing card shows
+  combined owing + "incl. $X old owing" + "Receive old owing" link,
+  `components/clients/owing-modal.tsx` (both modes), ledger rows badge as
+  "Old owing" (rose, no +, it is not money) / "Owing paid" (emerald). NOT on the
+  statement paper (it details invoices; revisit if the owner asks).
+- **KHR rounds to nearest 100៛** in `khr()` (smallest bill is 100; tens digit >= 5
+  rounds up, owner picked nearest over always-up despite their 5,720→5,800 example).
+- **Charge modal**: "Cash received" + quick chips + Change REMOVED (owner's call;
+  receipt still prints Received/Change on old sales, new sales send
+  `amount_received: null`). "Paying now" is a concrete number seeded with the due
+  amount on open, `null` = empty box = $0; the old `null`-means-full sentinel made
+  the input snap between Full/Pay later while typing (the reported bug). Chips
+  only highlight on exact 0 / exact due; nothing auto-switches.
+- **POS card feedback**: per-product in-cart quantity badge (brand pill right of
+  the name, `badge-pop` keyframes in globals.css replayed via a changing key,
+  covered by the global reduced-motion rule) + brand-tinted card border.
+- **Persisted sort** on POS + inventory: `lib/product-sort.ts`
+  (name/price/stock/newest comparators + localStorage `chomnenh:sort:<page>`,
+  swallow-on-fail) + `components/product-sort-menu.tsx` (Dropdown, active option
+  ticked). POS defaults name A-Z, inventory defaults newest (= the API's
+  display_number DESC order, so nothing moved for existing users). Stored key is
+  read back in a mount effect, never in the useState initializer (SSR has no
+  localStorage; a mismatched initializer would be a hydration bug).
+- E2E verified headless per the verify skill (scratchpad verify-newfeatures.js,
+  26/26): sort persist across reload on both pages, badge 1→2, KHR 23,370→23,400,
+  modal seeded/cleared/typed with zero auto-switching, confirm gating, old-owing
+  add → pay $25 → live card update → ledger labels → overpay-cleanup; endpoints
+  also curl-smoked (overpay 400, role gate, bad method 400, unknown client 404).
+  Fixture is idempotent (resets client 4 to $100 old owing each run).
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;

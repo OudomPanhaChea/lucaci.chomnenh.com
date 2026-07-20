@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS `clients` (
   `address`        VARCHAR(255) DEFAULT NULL,
   `note`           TEXT         DEFAULT NULL,
   `credit_balance` DECIMAL(10,2) NOT NULL DEFAULT 0.00,   -- prepaid money on account
+  `opening_owing`  DECIMAL(10,2) NOT NULL DEFAULT 0.00,   -- remaining pre-system debt
   `created_at`     TIMESTAMP    NOT NULL DEFAULT current_timestamp(),
   `updated_at`     TIMESTAMP    NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -206,13 +207,15 @@ CREATE TABLE IF NOT EXISTS `stock_movements` (
 -- ── Payments ledger (sale payments, client deposits, void refunds) ─────────
 -- amount is signed: positive = money in, negative = money out (refund mirror
 -- rows written on void). method 'credit' = paid from the client's prepaid
--- balance, which is not new money in.
+-- balance, which is not new money in. type 'owing_add' records pre-system debt
+-- entered on a client (an amount, NOT money); 'owing_pay' is money received
+-- against that debt.
 CREATE TABLE IF NOT EXISTS `payments` (
   `id`          INT(11)       NOT NULL AUTO_INCREMENT,
   `business_id` INT(11)       NOT NULL DEFAULT 1,
   `client_id`   INT(11)       DEFAULT NULL,
   `sale_id`     INT(11)       DEFAULT NULL,               -- NULL = client deposit
-  `type`        ENUM('sale','deposit','refund') NOT NULL DEFAULT 'sale',
+  `type`        ENUM('sale','deposit','refund','owing_add','owing_pay') NOT NULL DEFAULT 'sale',
   `method`      ENUM('cash','khqr','card','bank','credit','other') NOT NULL DEFAULT 'cash',
   `amount`      DECIMAL(10,2) NOT NULL,
   `user_id`     INT(11)       DEFAULT NULL,

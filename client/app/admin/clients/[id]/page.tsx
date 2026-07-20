@@ -6,7 +6,7 @@ import { DatePicker, Tabs, Tag } from "antd";
 import { Button } from "@/components/ui/button";
 import dayjs, { Dayjs } from "dayjs";
 import {
-  ArrowLeft, CircleAlert, IdCard, Mail, MapPin, Pencil, Phone, StickyNote, Wallet,
+  ArrowLeft, CircleAlert, HandCoins, IdCard, Mail, MapPin, Pencil, Phone, StickyNote, Wallet,
 } from "lucide-react";
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ClientAvatar } from "@/components/clients/client-avatar";
 import ClientFormModal from "@/components/clients/client-form-modal";
 import DepositModal from "@/components/clients/deposit-modal";
+import OwingModal from "@/components/clients/owing-modal";
 import PurchaseHistory from "@/components/clients/purchase-history";
 import ProductsRank from "@/components/clients/products-rank";
 import PaymentsList from "@/components/clients/payments-list";
@@ -47,6 +48,7 @@ export default function ClientDetailsPage() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
+  const [owingMode, setOwingMode] = useState<"add" | "pay" | null>(null);
   const [paySale, setPaySale] = useState<Sale | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null); // invoice modal
   const [paperBonus, setPaperBonus] = useState<Bonus | null>(null);
@@ -86,6 +88,7 @@ export default function ClientDetailsPage() {
 
   const cl = statement.client;
   const owingAll = Number(statement.overall.outstanding);
+  const oldOwing = Number(statement.overall.opening_owing) || 0;
   const prepaid = Number(cl.credit_balance);
 
   return (
@@ -108,6 +111,11 @@ export default function ClientDetailsPage() {
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setEditOpen(true)}>
               Edit
             </Button>
+            {isManager && (
+              <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setOwingMode("add")}>
+                Add old owing
+              </Button>
+            )}
             <Button type="primary" icon={<Wallet className="h-4 w-4" />} onClick={() => setDepositOpen(true)}>
               Add deposit
             </Button>
@@ -136,6 +144,20 @@ export default function ClientDetailsPage() {
               </p>
               {owingAll === 0 && (
                 <p className="text-xs text-emerald-600 dark:text-emerald-400">Fully paid</p>
+              )}
+              {oldOwing > 0 && (
+                <>
+                  <p className="tabular mt-0.5 text-xs text-fg-muted">
+                    incl. {money(oldOwing)} old owing
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setOwingMode("pay")}
+                    className="mt-1.5 cursor-pointer text-xs font-medium text-brand underline-offset-2 transition-colors duration-200 hover:underline"
+                  >
+                    Receive old owing
+                  </button>
+                </>
               )}
             </div>
             <div className={`rounded-lg border p-3 ${
@@ -280,6 +302,13 @@ export default function ClientDetailsPage() {
       <DepositModal
         client={depositOpen ? cl : null}
         onClose={() => setDepositOpen(false)}
+        onDone={load}
+      />
+
+      <OwingModal
+        client={owingMode ? cl : null}
+        mode={owingMode ?? "add"}
+        onClose={() => setOwingMode(null)}
         onDone={load}
       />
 
