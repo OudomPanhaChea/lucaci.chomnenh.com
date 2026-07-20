@@ -54,7 +54,7 @@ export function ProductTable({
                   </div>
                 )}
                 <div>
-                  <p className="font-medium text-fg">{p.name}</p>
+                  <p className="font-medium text-fg truncate">{p.name}</p>
                   <p className="font-mono text-xs text-fg-subtle">
                     {p.barcode || p.sku || ""}
                   </p>

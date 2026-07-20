@@ -40,17 +40,10 @@ export function PaperContinuation({
 }) {
   return (
     <>
-      <div className="flex items-baseline justify-between gap-6">
-        <p className="text-sm font-bold tracking-[0.08em] text-[#304A59]">
-          {title} <span className="font-medium normal-case tracking-normal text-[#8a97a3]">(continued)</span>
-        </p>
+      <div className="flex items-baseline justify-end gap-6">
         <p className="text-xs text-[#5b6b7a]">
           {subtitle ? `${subtitle} · ` : ""}Page {page} of {pages}
         </p>
-      </div>
-      <div className="mt-3 flex">
-        <div className="h-0.5 w-20 bg-[#FFA040]" />
-        <div className="h-0.5 flex-1 bg-[#304A59]" />
       </div>
     </>
   );
@@ -95,10 +88,6 @@ export function PaperHeader({
           {refText && <p className="mt-1 text-xs text-[#5b6b7a]">{refText}</p>}
           {issuedText && <p className="text-xs text-[#5b6b7a]">{issuedText}</p>}
         </div>
-      </div>
-      <div className="mt-6 flex">
-        <div className="h-0.5 w-20 bg-[#FFA040]" />
-        <div className="h-0.5 flex-1 bg-[#304A59]" />
       </div>
     </>
   );

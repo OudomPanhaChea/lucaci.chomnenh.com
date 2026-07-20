@@ -1,14 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import {
-  Input,
-  Modal,
-  Select,
-  Segmented,
-  Form,
-  Switch,
-} from "antd";
+import { Input, Modal, Select, Segmented, Form, Switch } from "antd";
 import { Button } from "@/components/ui/button";
 import { InputNumber } from "@/components/ui/input-number";
 import { toast } from "react-toastify";
@@ -240,9 +233,12 @@ export default function PosPage() {
     // leftover gets charged to the next customer. restoreDone already makes
     // this fire once; the id is belt and braces.
     const count = lines.reduce((n, l) => n + l.quantity, 0);
-    toast.info(`Cart restored (${num(count)} ${count === 1 ? "item" : "items"})`, {
-      toastId: "cart-restored",
-    });
+    toast.info(
+      `Cart restored (${num(count)} ${count === 1 ? "item" : "items"})`,
+      {
+        toastId: "cart-restored",
+      },
+    );
   }, [products, clients, clientsLoaded]);
 
   // Persist the sale in progress so a reload, a crash, or iOS evicting the tab
@@ -600,7 +596,7 @@ export default function PosPage() {
                         </div>
                       )}
                       {p.discount_pct > 0 && (
-                        <span className="absolute left-2 top-2 rounded-full bg-rose-600 px-2 py-0.5 text-xs font-medium text-white">
+                        <span className="absolute left-2 top-2 rounded-full bg-brand px-2 py-0.5 text-xs font-medium text-white">
                           -{p.discount_pct}%
                         </span>
                       )}
@@ -612,7 +608,7 @@ export default function PosPage() {
                     </div>
                     <div className="flex flex-1 flex-col p-2.5">
                       <div className="flex items-center justify-between gap-1.5">
-                        <p className="min-w-0 truncate text-sm font-medium text-fg">
+                        <p className="min-w-0 truncate! text-nowrap text-sm font-medium text-fg">
                           {p.name}
                         </p>
                         {carted > 0 && (
@@ -620,7 +616,7 @@ export default function PosPage() {
                           // the pop replays: the cashier sees the add land
                           <span
                             key={carted}
-                            className="badge-pop tabular shrink-0 rounded-full bg-brand px-1.5 py-0.5 text-center text-[11px] font-semibold leading-none text-brand-foreground"
+                            className="badge-pop tabular shrink-0 rounded-full bg-brand h-5 w-5 flex items-center justify-center text-center text-xs font-semibold leading-none text-brand-foreground"
                           >
                             {num(carted)}
                           </span>
@@ -842,7 +838,6 @@ export default function PosPage() {
               placeholder="Walk-in customer"
               allowClear
               showSearch
-              status={isPartner ? "warning" : undefined}
               optionFilterProp="label"
               value={clientId}
               onChange={(v) => setClientId(v ?? null)}
@@ -983,43 +978,31 @@ export default function PosPage() {
         onOk={checkout}
         confirmLoading={paying}
         okButtonProps={{
-          size: "large",
           disabled: owing > 0 && !clientId,
         }}
       >
         <div className="space-y-4 py-2">
           {/* Amount due + who is paying */}
           <div className="rounded-lg bg-surface-sunken p-3 text-center">
-            <p className="text-sm text-fg-muted">Amount due</p>
-            <p className="tabular text-3xl font-semibold text-fg">
-              {money(total)}
-            </p>
-            {settings && (
-              <p className="tabular text-sm text-fg-subtle">
-                {khr(total, settings.exchange_rate)}
-              </p>
-            )}
             <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs text-fg-muted">
               {selectedClient ? (
-                <>
-                  {isPartner ? (
-                    <Handshake className="h-3.5 w-3.5" />
-                  ) : (
-                    <UserRound className="h-3.5 w-3.5" />
-                  )}
-                  <span className="font-medium text-fg">
+                  <span className="font-medium text-fg text-lg">
                     {selectedClient.name}
                   </span>
-                  {isPartner && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                      Partner
-                    </span>
-                  )}
-                </>
               ) : (
                 "Walk-in customer"
               )}
             </p>
+            <div className="flex items-baseline justify-center gap-2">
+              <p className="tabular text-2xl font-semibold text-fg">
+                {money(total)}
+              </p>
+              {settings && (
+                <p className="tabular text-lg text-fg-subtle">
+                  ≈ {khr(total, settings.exchange_rate)}
+                </p>
+              )}
+            </div>
           </div>
 
           {selectedClient && clientCredit > 0 && (
@@ -1089,7 +1072,7 @@ export default function PosPage() {
                 ]}
               />
               <div>
-                <div className="mb-1 flex items-center justify-between">
+                <div className="my-3 flex items-center justify-between">
                   <p className="text-sm text-fg-muted">Paying now</p>
                   <div className="flex gap-1.5">
                     <button

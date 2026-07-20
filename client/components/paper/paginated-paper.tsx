@@ -136,7 +136,7 @@ export default function PaginatedPaper({
 function ContinuedHint({ page, pages }: { page: number; pages: number }) {
   return (
     <p className="mt-auto pt-6 text-right text-[11px] text-[#8a97a3]">
-      Continued on next page · Page {page} of {pages}
+      Page {page} of {pages}
     </p>
   );
 }

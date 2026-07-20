@@ -6,7 +6,7 @@ import { DatePicker, Tabs, Tag } from "antd";
 import { Button } from "@/components/ui/button";
 import dayjs, { Dayjs } from "dayjs";
 import {
-  ArrowLeft, CircleAlert, HandCoins, IdCard, Mail, MapPin, Pencil, Phone, StickyNote, Wallet,
+  ArrowLeft, BookPlus, CircleAlert, HandCoins, IdCard, Mail, MapPin, Pencil, Phone, StickyNote, Wallet,
 } from "lucide-react";
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
@@ -107,13 +107,18 @@ export default function ClientDetailsPage() {
         subtitle={cl.phone || cl.email || `Client #${cl.display_number}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {cl.client_type === "partner" && <Tag color="blue" className="m-0!">Partner</Tag>}
+            {/* {cl.client_type === "partner" && <Tag color="blue" className="m-0!">Partner</Tag>} */}
             <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setEditOpen(true)}>
               Edit
             </Button>
             {isManager && (
-              <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setOwingMode("add")}>
-                Add old owing
+              <Button icon={<BookPlus className="h-4 w-4" />} onClick={() => setOwingMode("add")}>
+                Add owing
+              </Button>
+            )}
+            {oldOwing > 0 && (
+              <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setOwingMode("pay")}>
+                Receive owing
               </Button>
             )}
             <Button type="primary" icon={<Wallet className="h-4 w-4" />} onClick={() => setDepositOpen(true)}>
@@ -148,15 +153,17 @@ export default function ClientDetailsPage() {
               {oldOwing > 0 && (
                 <>
                   <p className="tabular mt-0.5 text-xs text-fg-muted">
-                    incl. {money(oldOwing)} old owing
+                    incl. {money(oldOwing)} prev. owing
                   </p>
-                  <button
-                    type="button"
+                  {/* <Button
+                    block
+                    size="small"
+                    className="mt-2"
+                    icon={<HandCoins className="h-3.5 w-3.5" />}
                     onClick={() => setOwingMode("pay")}
-                    className="mt-1.5 cursor-pointer text-xs font-medium text-brand underline-offset-2 transition-colors duration-200 hover:underline"
                   >
-                    Receive old owing
-                  </button>
+                    Receive
+                  </Button> */}
                 </>
               )}
             </div>
@@ -251,6 +258,7 @@ export default function ClientDetailsPage() {
                     sales={statement.sales}
                     loading={stmtLoading}
                     hasRange={!!range}
+                    canPaperAlone={oldOwing > 0}
                     onOpenInvoice={setDetailId}
                     onPay={(s) => setPaySale({ ...s, client_id: clientId } as Sale)}
                     onCreatePaper={setPaperSaleIds}
@@ -314,11 +322,16 @@ export default function ClientDetailsPage() {
 
       <ReceivePaymentModal sale={paySale} onClose={() => setPaySale(null)} onDone={load} />
 
+      {/* Close the invoice modal before opening the paper, or it stays
+          stacked on top of the statement preview */}
       <InvoiceDetailModal
         saleId={detailId}
         onClose={() => setDetailId(null)}
         onChanged={load}
-        onPaper={(id) => setPaperSaleIds([id])}
+        onPaper={(id) => {
+          setDetailId(null);
+          setPaperSaleIds([id]);
+        }}
       />
 
       <BonusPaperModal bonus={paperBonus} onClose={() => setPaperBonus(null)} />

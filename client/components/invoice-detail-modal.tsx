@@ -133,7 +133,7 @@ export default function InvoiceDetailModal({
                       icon={<ArrowDownToLine className="h-4 w-4" />}
                       onClick={() => onPaper(sale.id)}
                     >
-                      Downlaod
+                      Download
                     </Button>
                   )
                 ) : (

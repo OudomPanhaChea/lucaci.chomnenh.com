@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-17 (hCDN body-stripping root-caused; stripped-response retries + API_ORIGIN_PIN_IP)
+> Last updated: 2026-07-20 (PWA pull-to-refresh + mobile drawer swipe + socket resume-on-wake)
 
 ## 1. What this project is
 
@@ -1227,8 +1227,8 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   deposits). UI: client details header "Add old owing" (manager), owing card shows
   combined owing + "incl. $X old owing" + "Receive old owing" link,
   `components/clients/owing-modal.tsx` (both modes), ledger rows badge as
-  "Old owing" (rose, no +, it is not money) / "Owing paid" (emerald). NOT on the
-  statement paper (it details invoices; revisit if the owner asks).
+  "Old owing" (rose, no +, it is not money) / "Owing paid" (emerald). On the
+  statement paper since batch 2 below (was invoice-only at first).
 - **KHR rounds to nearest 100៛** in `khr()` (smallest bill is 100; tens digit >= 5
   rounds up, owner picked nearest over always-up despite their 5,720→5,800 example).
 - **Charge modal**: "Cash received" + quick chips + Change REMOVED (owner's call;
@@ -1253,6 +1253,79 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   add → pay $25 → live card update → ledger labels → overpay-cleanup; endpoints
   also curl-smoked (overpay 400, role gate, bad method 400, unknown client 404).
   Fixture is idempotent (resets client 4 to $100 old owing each run).
+
+### Done (2026-07-20, batch 2): receive-owing discoverability + owing on statement paper + PDF download
+- **"Receive owing" promoted to a header-actions Button** (the tiny text link in
+  the owing card was hard to find, owner complaint): HandCoins icon, any role,
+  shown when oldOwing > 0, next to Add deposit. "Add owing" icon changed
+  HandCoins → BookPlus so the two owing actions don't twin. Owner edits after
+  review (respect these): UI labels dropped the word "old" ("Add owing",
+  "Receive owing", "incl. $X prev. owing", paper line "Previous owing"), and the
+  block "Receive" button inside the owing card is commented out (header button
+  is the one entry point). Invoice modal's paper button says "Download".
+- **Old owing on the statement paper**: `StatementPaper` takes `oldOwing?: number`;
+  when > 0 the totals block gains a "Previous owing" line and TOTAL OWING
+  (+ KHR approx) includes it. `StatementPaperModal` shows an "Include $X owing in
+  the total" checkbox (default ON, only when the client has any) via the new
+  generic `toolbar` prop on PaperModal. PaginatedPaper needed no change: its
+  measuring useLayoutEffect has no dep array, so toggling re-paginates itself.
+- **Owing-only paper (no invoices)**: `saleIds: []` (vs null = closed) means
+  "previous owing alone" — purchase-history shows an "Owing paper" button when
+  nothing is ticked (and in its empty state) if the client carries previous
+  owing; the paper then prints one "Owing carried from previous records" line,
+  hides the invoice-count header block and Total purchased/paid rows, always
+  titles OWING STATEMENT, and the include-toggle is hidden (forced on).
+- **Download PDF on every paper modal** (statement + bonus): `jspdf` added to
+  client deps, dynamically imported. PaperModal renders each `[data-paper-page]`
+  sheet to JPEG (same html-to-image path) then one A4 PDF page per sheet
+  (210x297mm, multi-sheet = one multi-page file). PDF is the primary button, JPG
+  kept as default-style; per-button loading, the other disabled while busy;
+  filename = the .jpg name with .pdf.
+- **Modal stacking fix**: opening the paper from the invoice detail modal now
+  closes the invoice modal first (`onPaper` clears `detailId`) — before, the
+  invoice modal stayed stacked ON TOP of the statement preview (antd portal
+  order, not z-index, decides between same-z modals).
+- E2E verified headless per the verify skill (scratchpad verify-owing-paper.js
+  19/19 + verify-owing-alone.js 11/11): buttons open the receive modal, toggle on
+  by default, paper math $2,500 invoices + $1,000 old = $3,500 and drops the line
+  when unticked, owing-only paper correct ($500, no purchased/paid rows, no
+  toggle), invoice modal closes when its Download opens the paper, downloaded PDF
+  is a real %PDF with page count = sheet count, JPG still a real JPEG. Fixtures
+  self-clean (pay back what they added).
+
+### Done (2026-07-20, batch 3): PWA native-feel gestures + socket resume (owner-requested)
+- **Pull to refresh** (`components/pwa/pull-to-refresh.tsx`, mounted in
+  admin-shell): the installed PWA / fullscreen has NO browser refresh button, so a
+  drag-down from the top of the page reloads, like a native app. **Enabled ONLY in
+  standalone or fullscreen** (`useStandalone() || useFullscreen().active`) — a normal
+  tab already has a refresh button + the browser's own pull-to-refresh, and doubling
+  either causes accidental reloads. Guards: only fires at document scrollTop 0, bails
+  if the touch is inside a scrolled container (inner list = "scroll to top", not
+  refresh) or inside an antd overlay (modal/drawer/dropdown/select/picker/popover/
+  toast), requires a downward-dominant drag (dy > 0 and |dy| > |dx|), applies 0.4
+  resistance, arms at 60 applied px. Sets `overscrollBehaviorY: contain` on the root
+  while active so the browser's native overscroll can't fight the chip. A brand chip
+  with a rotating RefreshCw follows the finger (z-[60], above header/sider), spins on
+  release; reload is safe because cart (lib/pos-cart) and session (cookie) both
+  survive it.
+- **Swipe to open/close the mobile drawer** (effect in admin-shell, only when
+  `broken`): a horizontal drag starting within 24px of the left edge opens the sider;
+  a horizontal left-swipe while it's open closes it (the backdrop covers the page, so
+  nothing there competes). Threshold 55px, requires |dx| > |dy| so vertical scrolls
+  and pull-to-refresh never trigger it. Desktop still uses the collapse button.
+- **Socket resume** (`services/socket.ts`): a backgrounded PWA has its JS timers
+  frozen by iOS/Android, so socket.io's own backoff could leave the pill on Offline
+  for tens of seconds after wake. Added `wireResumeReconnect()` — on
+  visibilitychange/online/focus/pageshow (pageshow catches bfcache restores the
+  others miss) it calls `socket.connect()` if disconnected and visible — plus
+  `reconnectionDelayMax: 5000` to cap the backoff. Pokes the SAME instance (no
+  recreate), so the header pill's listeners stay valid.
+- E2E verified headless per the verify skill (scratchpad verify-gestures.js, 7/7 at
+  390x844, faking display-mode:standalone): drawer starts hidden, edge-swipe-right
+  opens, swipe-left closes, mid-screen and vertical drags do NOT open, the refresh
+  chip mounts in standalone, and a big downward pull at the top reloads the page.
+  `next build` passes (all routes intact). NOTE: pull-to-refresh is invisible in a
+  normal browser tab by design, so it only shows on a real installed PWA / iPad.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;

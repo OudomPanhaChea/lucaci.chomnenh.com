@@ -25,6 +25,8 @@ import { getSocket } from "@/services/socket";
 import { useRealtime } from "@/hooks/useRealtime";
 import api from "@/services/api";
 import UserMenu from "@/components/layouts/user-menu";
+import PublicMenuModal from "@/components/layouts/public-menu-modal";
+import PullToRefresh from "@/components/pwa/pull-to-refresh";
 import type { Role, Settings as SettingsType } from "@/lib/types";
 
 const { Header, Content, Sider } = Layout;
@@ -146,6 +148,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [broken, setBroken] = useState(false); // below the lg breakpoint
   const [settings, setSettings] = useState<SettingsType | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false); // public-menu share dialog
   const connected = useSocketConnected(user?.id);
 
   useEffect(() => {
@@ -169,8 +172,58 @@ export default function AdminShell({ children }: { children: ReactNode }) {
     if (broken) setCollapsed(true);
   };
 
+  // Swipe to open/close the mobile drawer, the way a native app does.
+  // Open: a horizontal drag starting from the very left edge. Close: a
+  // horizontal left-swipe while the drawer is open (the page underneath is
+  // covered by the backdrop, so nothing there competes for the gesture).
+  // Only wired below the lg breakpoint; desktop uses the collapse button.
+  useEffect(() => {
+    if (!broken) return;
+    const EDGE = 24; // px from the left edge that count as an open-swipe start
+    const THRESHOLD = 55; // horizontal px that commit the gesture
+    let start: { x: number; y: number; valid: boolean } | null = null;
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        start = null;
+        return;
+      }
+      const t = e.touches[0];
+      // Open gesture must begin at the screen edge; close gesture can begin
+      // anywhere while the drawer is open.
+      const valid = collapsed ? t.clientX <= EDGE : true;
+      start = { x: t.clientX, y: t.clientY, valid };
+    };
+    const onEnd = (e: TouchEvent) => {
+      const s = start;
+      start = null;
+      if (!s?.valid) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (Math.abs(dx) < THRESHOLD || Math.abs(dx) <= Math.abs(dy)) return;
+      if (collapsed && dx > 0) setCollapsed(false); // edge swipe right → open
+      else if (!collapsed && dx < 0) setCollapsed(true); // swipe left → close
+    };
+
+    window.addEventListener("touchstart", onStart, { passive: true });
+    window.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", onStart);
+      window.removeEventListener("touchend", onEnd);
+    };
+  }, [broken, collapsed]);
+
   return (
     <Layout className="min-h-screen">
+      {/* Reload gesture for the chromeless PWA / fullscreen (no refresh button there) */}
+      <PullToRefresh />
+      <PublicMenuModal
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        menuPublic={!!settings?.menu_public}
+        canEditSettings={user?.role === "owner"}
+      />
       {/* Mobile: the open sidebar floats over the page; tapping anywhere outside closes it */}
       {broken && !collapsed && (
         <div
@@ -269,20 +322,22 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             ))}
 
             <div className="mt-4 border-t border-line pt-3">
-              {/* Plain anchor so the menu always opens in a normal browser tab,
-                  never inside an installed/app window's own frame */}
-              <a
-                href="/menu"
-                target="_blank"
-                rel="noopener noreferrer"
+              {/* Opens a share dialog (copy link / QR / open) instead of jumping
+                  straight to the menu, so staff can hand the link to a customer */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(true);
+                  closeOnMobile();
+                }}
                 title={collapsed ? "Public menu" : undefined}
-                className={`flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg ${
+                className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg ${
                   collapsed ? "justify-center" : ""
                 }`}
               >
                 <ExternalLink className="h-4.5 w-4.5 shrink-0" />
                 {!collapsed && <span>Public menu</span>}
-              </a>
+              </button>
             </div>
           </nav>
 
@@ -313,7 +368,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
       <Layout>
         <Header
-          className="!sticky !top-0 z-30 flex !h-14 items-center justify-between border-b border-line !bg-surface-raised !px-4 shadow-card"
+          className="!sticky !top-0 z-30 flex !h-14 items-center justify-between border-b border-line !bg-surface-raised px-2! sm:!px-4 shadow-card"
           style={{ lineHeight: "normal" }}
         >
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">

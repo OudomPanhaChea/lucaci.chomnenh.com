@@ -78,9 +78,6 @@ export default function UserMenu() {
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-fg">{user?.name}</p>
           <p className="truncate text-xs text-fg-muted">{user?.email}</p>
-          {/* <span className="mt-1 inline-block rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium capitalize text-brand-soft-foreground">
-            {user?.role}
-          </span> */}
         </div>
       </div>
 
@@ -178,13 +175,13 @@ export default function UserMenu() {
         aria-label="Account menu"
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-transparent py-5.5 pl-1 pr-1.5 transition-colors duration-200 hover:bg-surface-sunken sm:pr-2 ${
+        className={`flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-transparent py-5.5 pl-1 pr-1 transition-colors duration-200 hover:bg-surface-sunken sm:pr-2 ${
           open ? "border-line bg-surface-sunken" : ""
         }`}
       >
         <Avatar url={user?.avatar_url} name={user?.name} size="md" />
-        <div className="flex flex-col">
-          <span className="hidden max-w-32 truncate text-sm font-medium text-fg sm:block">
+        <div className="hidden sm:flex flex-col">
+          <span className="max-w-32 truncate text-sm font-medium text-fg sm:block">
             {user?.name}
           </span>
           <span className="w-fit inline-block rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium capitalize text-brand-soft-foreground">
@@ -192,7 +189,7 @@ export default function UserMenu() {
           </span>
         </div>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform duration-200 ${
+          className={`h-4 w-4 hidden sm:block shrink-0 text-fg-subtle transition-transform duration-200 ${
             open ? "rotate-180" : ""
           }`}
         />

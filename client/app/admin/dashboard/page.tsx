@@ -172,7 +172,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-260 w-full text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-fg-subtle">
                   <th className="px-4 py-2.5 font-medium">Invoice</th>

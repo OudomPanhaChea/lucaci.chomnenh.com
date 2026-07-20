@@ -10,24 +10,28 @@ import PaginatedPaper from "@/components/paper/paginated-paper";
 
 // The downloadable client statement, A4 portrait on the shared paper
 // primitives: the selected invoices, each detailed separately (items, total,
-// paid, balance), then one grand owing total. Splits onto extra sheets when
-// the invoices don't fit one page. Titled OWING STATEMENT when every selected
-// invoice still owes money, ACCOUNT STATEMENT when paid ones are included.
+// paid, balance), then one grand owing total (optionally including the
+// client's remaining old owing, debt from before this system). Splits onto
+// extra sheets when the invoices don't fit one page. Titled OWING STATEMENT
+// when every selected invoice still owes money, ACCOUNT STATEMENT when paid
+// ones are included.
 export default function StatementPaper({
   client,
   sales,
   settings,
   preparedBy,
+  oldOwing = 0,
 }: {
   client: Client;
   sales: Sale[]; // full sales with items, oldest first
   settings: Settings | null;
   preparedBy: string;
+  oldOwing?: number; // remaining pre-system debt to include, 0 = leave off
 }) {
   const issued = useMemo(() => dayjs(), []);
   const purchased = sales.reduce((s, x) => s + Number(x.total), 0);
   const paid = sales.reduce((s, x) => s + Number(x.amount_paid), 0);
-  const owing = purchased - paid;
+  const owing = purchased - paid + oldOwing;
   const owingOnly = sales.every((s) => Number(s.total) - Number(s.amount_paid) > 0);
   const title = owingOnly ? "OWING STATEMENT" : "ACCOUNT STATEMENT";
 
@@ -43,9 +47,6 @@ export default function StatementPaper({
       {/* Billed to + invoice span */}
       <div className="flex items-end justify-between gap-6 pt-8">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8a97a3]">
-            Statement for
-          </p>
           <p className="mt-1 text-2xl font-bold text-[#142332]">{client.name}</p>
           {(client.phone || client.address) && (
             <p className="mt-0.5 text-xs text-[#5b6b7a]">
@@ -53,26 +54,42 @@ export default function StatementPaper({
             </p>
           )}
         </div>
-        <div className="text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8a97a3]">
-            {owingOnly ? "Unpaid invoices" : "Invoices"}
-          </p>
-          <p className="mt-1 text-sm font-semibold">
-            {sales.length} invoice{sales.length === 1 ? "" : "s"}
-          </p>
-          {sales.length > 0 && (
+        {sales.length > 0 && (
+          <div className="text-right">
+            <p className="mt-1 text-sm font-semibold">
+              {sales.length} invoice{sales.length === 1 ? "" : "s"}
+            </p>
             <p className="text-xs text-[#5b6b7a]">
               {fmtDate(sales[0].created_at, "dd MMM yyyy")} –{" "}
               {fmtDate(sales[sales.length - 1].created_at, "dd MMM yyyy")}
             </p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </>
   );
 
+  // Owing-only paper (no invoices selected): one line stating the carried
+  // balance, so the sheet is not just a totals box
+  const owingAloneBlock = {
+    key: "prev-owing",
+    node: (
+      <div className="pt-8">
+        <div className="border-b-2 border-[#304A59] pb-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a97a3]">
+            Previous owing
+          </span>
+        </div>
+        <div className="flex items-center justify-between border-b border-[#e6ebee] py-2.5 text-sm">
+          <span className="font-medium">Owing carried from previous records</span>
+          <span className="tabular font-medium">{money(oldOwing)}</span>
+        </div>
+      </div>
+    ),
+  };
+
   // One block per invoice: its items, then total / paid / balance
-  const blocks = sales.map((s) => {
+  const invoiceBlocks = sales.map((s) => {
     const balance = Number(s.total) - Number(s.amount_paid);
     return {
       key: `inv-${s.id}`,
@@ -136,18 +153,29 @@ export default function StatementPaper({
       ),
     };
   });
+  const blocks = sales.length > 0 ? invoiceBlocks : oldOwing > 0 ? [owingAloneBlock] : [];
 
-  // Grand totals
+  // Grand totals (purchased/paid rows only make sense with invoices)
   const tail = (
     <div className="ml-auto w-72 pt-9">
-      <div className="flex items-center justify-between py-1 text-sm text-[#5b6b7a]">
-        <span>Total purchased</span>
-        <span className="tabular">{money(purchased)}</span>
-      </div>
-      <div className="flex items-center justify-between py-1 text-sm text-[#5b6b7a]">
-        <span>Total paid</span>
-        <span className="tabular">{money(paid)}</span>
-      </div>
+      {sales.length > 0 && (
+        <>
+          <div className="flex items-center justify-between py-1 text-sm text-[#5b6b7a]">
+            <span>Total purchased</span>
+            <span className="tabular">{money(purchased)}</span>
+          </div>
+          <div className="flex items-center justify-between py-1 text-sm text-[#5b6b7a]">
+            <span>Total paid</span>
+            <span className="tabular">{money(paid)}</span>
+          </div>
+        </>
+      )}
+      {oldOwing > 0 && (
+        <div className="flex items-center justify-between py-1 text-sm text-[#5b6b7a]">
+          <span>Previous owing</span>
+          <span className="tabular">{money(oldOwing)}</span>
+        </div>
+      )}
       <div className="mt-1.5 flex items-baseline justify-between gap-4 border-t-2 border-[#304A59] pt-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[#304A59]">
           Total owing
