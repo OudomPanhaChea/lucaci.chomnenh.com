@@ -258,7 +258,7 @@ export default function PosPage() {
           p.name.toLowerCase().includes(q) ||
           p.barcode?.includes(q) ||
           p.sku?.toLowerCase().includes(q)),
-    );
+    ).sort((a, b) => a.name.localeCompare(b.name));
   }, [products, search, categoryId]);
 
   // Adding is silent by design: the cart itself is the feedback, and scans
