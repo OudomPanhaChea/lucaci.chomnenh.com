@@ -330,6 +330,49 @@ export async function voidSale(req, res) {
   }
 }
 
+// Permanently delete an invoice. Allowed ONLY after it has been voided: the
+// void already restored stock, refunded any money/credit, and netted the ledger
+// to zero, so removing the rows leaves stock_qty and credit_balance correct.
+// sale_items and payments cascade (FK ON DELETE CASCADE); bonus_items keep their
+// snapshots (FK ON DELETE SET NULL) so bonus history survives; the sale's
+// stock_movements have no FK on sale_id, so they are deleted explicitly. The
+// invoice number is retired, never reused.
+export async function deleteSale(req, res) {
+  const id = req.params.id;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[sale]] = await conn.query(
+      "SELECT id, invoice_number, client_id, status FROM sales WHERE id = ? AND business_id = ? FOR UPDATE",
+      [id, BUSINESS_ID]
+    );
+    if (!sale) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+    if (sale.status !== "voided") {
+      await conn.rollback();
+      return res.status(400).json({ message: "Only a voided invoice can be deleted" });
+    }
+    await conn.query(
+      "DELETE FROM stock_movements WHERE sale_id = ? AND business_id = ?", [id, BUSINESS_ID]
+    );
+    await conn.query(
+      "DELETE FROM sales WHERE id = ? AND business_id = ?", [id, BUSINESS_ID]
+    );
+    await conn.commit();
+
+    emitToAdmins("sale:voided", { id: Number(id), deleted: true, invoice_number: sale.invoice_number });
+    if (sale.client_id) emitToAdmins("client:changed", { type: "update", id: sale.client_id });
+    res.json({ id: Number(id), deleted: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 // Take money against an invoice that still has a balance. method 'credit'
 // spends the client's prepaid balance instead of new money.
 export async function receivePayment(req, res) {
