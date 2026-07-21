@@ -15,6 +15,7 @@ import {
   BadgeDollarSign,
   ShieldCheck,
   ArrowDownToLine,
+  Trash2,
 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -42,7 +43,9 @@ export default function InvoiceDetailModal({
 }) {
   const { user } = useAuth();
   const canVoid = user?.role === "owner" || user?.role === "admin";
+  const canDelete = user?.role === "owner"; // deleting a voided invoice is owner-only
   const [sale, setSale] = useState<Sale | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
 
@@ -69,8 +72,11 @@ export default function InvoiceDetailModal({
 
   // Keep the open invoice fresh if another device receives a payment or voids it
   useRealtime(["sale:updated", "sale:voided"], (_event, payload) => {
-    const updated = payload as Sale;
-    if (saleId && updated?.id === saleId) setSale(updated);
+    const updated = payload as Sale & { deleted?: boolean };
+    if (!saleId || updated?.id !== saleId) return;
+    // Another device deleted this invoice while it was open here: close it.
+    if (updated.deleted) onClose();
+    else setSale(updated);
   });
 
   const voidSale = async () => {
@@ -82,6 +88,21 @@ export default function InvoiceDetailModal({
       onChanged?.();
     } catch (err) {
       toast.error(apiError(err));
+    }
+  };
+
+  const deleteSaleRow = async () => {
+    if (!sale) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/sales/${sale.id}`);
+      toast.success(`${sale.invoice_number} deleted`);
+      onChanged?.();
+      onClose();
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -112,13 +133,26 @@ export default function InvoiceDetailModal({
               {sale && canVoid && !voided && (
                 <Popconfirm
                   title="Void this invoice?"
-                  description="Stock is restored and received money is marked refunded. This cannot be undone."
+                  description="This cannot be undone."
                   okText="Void invoice"
                   okButtonProps={{ danger: true }}
                   onConfirm={voidSale}
                 >
                   <Button danger icon={<Ban className="h-4 w-4" />}>
                     Refund
+                  </Button>
+                </Popconfirm>
+              )}
+              {sale && canDelete && voided && (
+                <Popconfirm
+                  title="Delete this invoice?"
+                  description="This cannot be undone."
+                  okText="Delete invoice"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={deleteSaleRow}
+                >
+                  <Button danger loading={deleting} icon={<Trash2 className="h-4 w-4" />}>
+                    Delete
                   </Button>
                 </Popconfirm>
               )}
@@ -174,8 +208,7 @@ export default function InvoiceDetailModal({
                       </p>
                       <p className="mt-0.5 text-xs text-fg-muted">
                         {fmtDate(sale.voided_at ?? "")}
-                        {sale.voided_by ? ` by ${sale.voided_by}` : ""}. Stock
-                        was returned and any money received was refunded.
+                        {sale.voided_by ? ` by ${sale.voided_by}` : ""}
                       </p>
                     </>
                   ) : (

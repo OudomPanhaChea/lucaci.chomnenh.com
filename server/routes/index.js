@@ -87,6 +87,7 @@ router.get("/sales", sales.listSales);
 router.get("/sales/:id", sales.getSale);
 router.post("/sales/:id/payments", sales.receivePayment);
 router.post("/sales/:id/void", manager, sales.voidSale);
+router.delete("/sales/:id", requireRole("owner"), sales.deleteSale);
 
 router.get("/reports/summary", manager, reports.summary);
 router.get("/reports/dashboard", reports.dashboard);

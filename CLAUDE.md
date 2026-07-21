@@ -165,9 +165,10 @@ npm run dev        # Next.js on :3000, proxies to API on :5001
 npm run build
 ```
 
-**Never test on the production business.** Sales can only be voided, never deleted (there
-is no `DELETE /sales/:id`), so a test sale burns an invoice number and lives in the owner's
-invoice list forever. To test against real data, clone the prod DB locally (`mysqldump` from
+**Never test on the production business.** A sale must be voided before it can be deleted
+(`DELETE /sales/:id` rejects any non-voided invoice, see 2026-07-21), and a deleted
+invoice's number is retired, never reused, so a test sale still burns an invoice number
+even after cleanup. To test against real data, clone the prod DB locally (`mysqldump` from
 hPanel → import into the local `chamnenh_pos`; the dump carries `business_id=1`, which the
 local default already matches). Only host-specific behaviour (hCDN, PWA on a real iPad,
 Socket.IO through Hostinger's proxy) needs a staging clone: a second DB restored from a prod
@@ -1326,6 +1327,25 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   chip mounts in standalone, and a big downward pull at the top reloads the page.
   `next build` passes (all routes intact). NOTE: pull-to-refresh is invisible in a
   normal browser tab by design, so it only shows on a real installed PWA / iPad.
+
+### Done (2026-07-21): delete a voided invoice (owner-requested)
+- Reverses the long-standing "sales are never deleted" stance, but ONLY behind a void:
+  `DELETE /sales/:id` (`deleteSale`, **owner-only** — more destructive than void, which
+  is manager-gated) rejects any status other than `voided`. Safe because the void already restored stock, refunded money/credit,
+  and netted the ledger to zero, so removing the rows leaves `stock_qty` and
+  `credit_balance` correct. `sale_items` + `payments` drop via FK ON DELETE CASCADE;
+  `bonus_items.sale_id` is ON DELETE SET NULL so bonus history keeps its snapshots; the
+  sale's `stock_movements` have NO FK on `sale_id`, so they are deleted explicitly first.
+  Invoice numbers are retired, never reused. Emits `sale:voided` with `{deleted:true}` so
+  lists re-fetch; an open `InvoiceDetailModal` on another device closes itself on that
+  flag instead of rendering the stub payload.
+- UI: in `invoice-detail-modal.tsx` the footer shows a red **Delete** button (Trash2,
+  Popconfirm) in place of Refund once the invoice is voided (manager only), with a
+  loading state; on success it toasts, refreshes the parent list, and closes. Gated by
+  `canDelete` (owner role) client-side to match the route.
+- Verified: `next build` passes, server files `node --check` clean, and the delete SQL
+  was dry-run against the local voided test sale (#5) inside a ROLLED-BACK transaction:
+  sale gone, `sale_items` 1→0 and `payments` 2→0 via cascade, then restored on rollback.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
