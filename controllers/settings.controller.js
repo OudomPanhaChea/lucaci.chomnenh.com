@@ -57,6 +57,22 @@ export async function removeLogo(_req, res) {
   await respondAndBroadcast(res);
 }
 
+export async function uploadKhqr(req, res) {
+  if (!req.file) return res.status(400).json({ message: "No image uploaded" });
+  const current = await loadSettings();
+  const khqrUrl = await storeUploadedImage(req.file);
+  await pool.query("UPDATE settings SET khqr_url = ? WHERE business_id = ?", [khqrUrl, BUSINESS_ID]);
+  deleteUploadedFile(current?.khqr_url);
+  await respondAndBroadcast(res);
+}
+
+export async function removeKhqr(_req, res) {
+  const current = await loadSettings();
+  await pool.query("UPDATE settings SET khqr_url = NULL WHERE business_id = ?", [BUSINESS_ID]);
+  deleteUploadedFile(current?.khqr_url);
+  await respondAndBroadcast(res);
+}
+
 export async function addBanner(req, res) {
   if (!req.file) return res.status(400).json({ message: "No image uploaded" });
   const current = await loadSettings();

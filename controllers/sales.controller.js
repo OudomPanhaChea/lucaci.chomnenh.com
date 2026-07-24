@@ -450,8 +450,13 @@ export async function receivePayment(req, res) {
 }
 
 async function getSaleWithItems(id) {
+  // client_opening_owing rides along so the invoice paper can print a
+  // "Previous owing" line (the client's remaining pre-system debt).
   const [[sale]] = await pool.query(
-    "SELECT * FROM sales WHERE id = ? AND business_id = ?", [id, BUSINESS_ID]
+    `SELECT s.*, c.opening_owing AS client_opening_owing
+     FROM sales s LEFT JOIN clients c ON c.id = s.client_id
+     WHERE s.id = ? AND s.business_id = ?`,
+    [id, BUSINESS_ID]
   );
   if (!sale) return null;
   // base_unit rides along for display ("= 24 tubes"); products are soft-deleted
@@ -466,5 +471,25 @@ async function getSaleWithItems(id) {
     "SELECT id, type, method, amount, received_by, note, created_at FROM payments WHERE sale_id = ? ORDER BY id",
     [id]
   );
-  return { ...sale, items, payments };
+  // Per-invoice edited layout is stored as JSON text; hand back an array/null.
+  let invoice_layout = null;
+  if (sale.invoice_layout) {
+    try { invoice_layout = JSON.parse(sale.invoice_layout); } catch { /* corrupted: ignore */ }
+  }
+  return { ...sale, invoice_layout, items, payments };
+}
+
+// Save a per-invoice layout: which template it prints with and, optionally, an
+// edited elements snapshot that overrides the template for THIS invoice only.
+// Passing layout = null clears the override (falls back to the template).
+export async function saveInvoiceLayout(req, res) {
+  const templateId = req.body?.template_id != null ? Number(req.body.template_id) : null;
+  const layout = Array.isArray(req.body?.layout) ? JSON.stringify(req.body.layout) : null;
+  const [result] = await pool.query(
+    "UPDATE sales SET invoice_template_id = ?, invoice_layout = ? WHERE id = ? AND business_id = ?",
+    [Number.isFinite(templateId) ? templateId : null, layout, req.params.id, BUSINESS_ID]
+  );
+  if (!result.affectedRows) return res.status(404).json({ message: "Invoice not found" });
+  emitToAdmins("sale:updated", await getSaleWithItems(req.params.id));
+  res.json({ message: "Invoice layout saved" });
 }
