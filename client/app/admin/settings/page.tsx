@@ -10,6 +10,7 @@ import { Camera, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { MAX_IMAGE_MB } from "@/lib/images";
 import { SectionHeader } from "@/components/ui/section-header";
+import TemplateManager from "@/components/invoice-template/template-manager";
 import type { Settings } from "@/lib/types";
 
 const MAX_BANNERS = 4;
@@ -270,6 +271,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        <TemplateManager settings={settings} onSettings={setSettings} />
         <div className="mt-4 flex justify-end">
           <Button type="primary" htmlType="submit" loading={saving}>Save settings</Button>
         </div>

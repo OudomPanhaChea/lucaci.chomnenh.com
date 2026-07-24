@@ -14,10 +14,9 @@ const isOwing = (s: Sale) => s.status !== "voided" && balanceOf(s) > 0;
 const isSelectable = (s: Sale) => s.status !== "voided";
 
 // Purchase list of the client details page. Any non-voided invoice can be
-// ticked (or all at once) to print them together as one A4 statement paper;
-// owing-only selections print as an owing statement. With nothing ticked, a
-// client carrying previous owing can still print an owing-only paper
-// (onCreatePaper([])).
+// ticked (or all at once) to print them as invoice-canvas papers
+// (onCreatePaper(ids)). With nothing ticked, a client carrying previous owing
+// can still print an owing-only statement (onCreatePaper([])).
 export default function PurchaseHistory({
   sales,
   loading,
@@ -61,7 +60,7 @@ export default function PurchaseHistory({
         }
         action={canPaperAlone ? (
           <Button icon={<Printer className="h-3.5 w-3.5" />} onClick={() => onCreatePaper([])}>
-            Invoice
+            Owing statement
           </Button>
         ) : undefined}
       />

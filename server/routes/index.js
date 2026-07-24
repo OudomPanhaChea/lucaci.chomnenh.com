@@ -11,6 +11,7 @@ import * as sales from "../controllers/sales.controller.js";
 import * as reports from "../controllers/reports.controller.js";
 import * as bonuses from "../controllers/bonuses.controller.js";
 import * as settings from "../controllers/settings.controller.js";
+import * as templates from "../controllers/invoice-templates.controller.js";
 import * as pub from "../controllers/public.controller.js";
 
 const router = Router();
@@ -87,7 +88,15 @@ router.get("/sales", sales.listSales);
 router.get("/sales/:id", sales.getSale);
 router.post("/sales/:id/payments", sales.receivePayment);
 router.post("/sales/:id/void", manager, sales.voidSale);
+router.put("/sales/:id/layout", sales.saveInvoiceLayout);
 router.delete("/sales/:id", requireRole("owner"), sales.deleteSale);
+
+router.get("/invoice-templates", templates.listTemplates);
+router.get("/invoice-templates/:id", templates.getTemplate);
+router.post("/invoice-templates", requireRole("owner"), templates.createTemplate);
+router.put("/invoice-templates/:id", requireRole("owner"), templates.updateTemplate);
+router.put("/invoice-templates/:id/default", requireRole("owner"), templates.setDefaultTemplate);
+router.delete("/invoice-templates/:id", requireRole("owner"), templates.deleteTemplate);
 
 router.get("/reports/summary", manager, reports.summary);
 router.get("/reports/dashboard", reports.dashboard);
@@ -103,6 +112,8 @@ router.post("/settings/logo", requireRole("owner"), uploadBranding, settings.upl
 router.delete("/settings/logo", requireRole("owner"), settings.removeLogo);
 router.post("/settings/banners", requireRole("owner"), uploadBranding, settings.addBanner);
 router.delete("/settings/banners", requireRole("owner"), settings.removeBanner);
+router.post("/settings/khqr", requireRole("owner"), uploadBranding, settings.uploadKhqr);
+router.delete("/settings/khqr", requireRole("owner"), settings.removeKhqr);
 
 router.get("/users", manager, users.listUsers);
 router.post("/users", requireRole("owner"), users.createUser);

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "antd";
 import { Button } from "@/components/ui/button";
-import { ArrowDownToLine, ImageDown } from "lucide-react";
+import { ArrowDownToLine, ImageDown, Pencil } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "@/services/api";
 import type { Settings } from "@/lib/types";
@@ -30,7 +30,11 @@ export default function PaperModal({
   filename,
   onClose,
   canDownload = true,
+  onEdit,
+  editLabel = "Edit",
   toolbar,
+  width = 960,
+  scrollMaxHeight,
   children,
 }: {
   open: boolean;
@@ -38,7 +42,11 @@ export default function PaperModal({
   filename: string;
   onClose: () => void;
   canDownload?: boolean;
+  onEdit?: () => void; // when set, an Edit button appears in the footer
+  editLabel?: string;
   toolbar?: React.ReactNode; // paper-specific options above the preview
+  width?: number; // modal width (default 960)
+  scrollMaxHeight?: string; // cap + scroll the preview area (e.g. "64vh")
   children: React.ReactNode;
 }) {
   const paperRef = useRef<HTMLDivElement>(null);
@@ -104,11 +112,17 @@ export default function PaperModal({
       open={open}
       onCancel={onClose}
       centered
-      className="w-fit!"
+      width={width}
+      style={{ maxWidth: "96vw" }}
       title={title}
       footer={
         <div className="flex flex-wrap justify-end gap-2">
           <Button onClick={onClose}>Close</Button>
+          {onEdit && (
+            <Button icon={<Pencil className="h-4 w-4" />} onClick={onEdit}>
+              {editLabel}
+            </Button>
+          )}
           <Button
             icon={<ImageDown className="h-4 w-4" />}
             loading={busy === "jpg"}
@@ -130,7 +144,10 @@ export default function PaperModal({
       }
     >
       {toolbar && <div className="mb-3">{toolbar}</div>}
-      <div className="overflow-auto rounded-lg border border-line bg-surface-sunken p-3">
+      <div
+        className="overflow-auto rounded-lg border border-line bg-surface-sunken p-3"
+        style={scrollMaxHeight ? { maxHeight: scrollMaxHeight } : undefined}
+      >
         {/* relative: the papers' hidden measuring pass anchors to this box */}
         <div ref={paperRef} className="relative mx-auto w-fit space-y-4">
           {children}

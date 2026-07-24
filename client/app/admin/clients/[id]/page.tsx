@@ -22,7 +22,7 @@ import PurchaseHistory from "@/components/clients/purchase-history";
 import ProductsRank from "@/components/clients/products-rank";
 import PaymentsList from "@/components/clients/payments-list";
 import BonusesList from "@/components/clients/bonuses-list";
-import StatementPaperModal from "@/components/clients/statement-paper-modal";
+import InvoicePaperModal from "@/components/invoice-template/invoice-paper-modal";
 import ReceivePaymentModal from "@/components/receive-payment-modal";
 import InvoiceDetailModal from "@/components/invoice-detail-modal";
 import BonusPaperModal from "@/components/bonus/bonus-paper-modal";
@@ -52,7 +52,9 @@ export default function ClientDetailsPage() {
   const [paySale, setPaySale] = useState<Sale | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null); // invoice modal
   const [paperBonus, setPaperBonus] = useState<Bonus | null>(null);
-  const [paperSaleIds, setPaperSaleIds] = useState<number[] | null>(null); // owing statement
+  // Canvas invoice paper: one or many invoices, or [] = owing-only statement
+  // (previous owing rendered on the same canvas as a synthetic invoice).
+  const [invoiceIds, setInvoiceIds] = useState<number[] | null>(null);
 
   const load = useCallback(() => {
     setStmtLoading(true);
@@ -261,7 +263,7 @@ export default function ClientDetailsPage() {
                     canPaperAlone={oldOwing > 0}
                     onOpenInvoice={setDetailId}
                     onPay={(s) => setPaySale({ ...s, client_id: clientId } as Sale)}
-                    onCreatePaper={setPaperSaleIds}
+                    onCreatePaper={setInvoiceIds}
                   />
                 ),
               },
@@ -323,23 +325,29 @@ export default function ClientDetailsPage() {
       <ReceivePaymentModal sale={paySale} onClose={() => setPaySale(null)} onDone={load} />
 
       {/* Close the invoice modal before opening the paper, or it stays
-          stacked on top of the statement preview */}
+          stacked on top of the invoice preview. A single invoice prints as a
+          template invoice (canvas), editable individually. */}
       <InvoiceDetailModal
         saleId={detailId}
         onClose={() => setDetailId(null)}
         onChanged={load}
         onPaper={(id) => {
           setDetailId(null);
-          setPaperSaleIds([id]);
+          setInvoiceIds([id]);
         }}
       />
 
       <BonusPaperModal bonus={paperBonus} onClose={() => setPaperBonus(null)} />
 
-      <StatementPaperModal
+      {/* Selected invoices print as template invoices, each editable individually.
+          saleIds = [] prints an owing-only statement on the same canvas. */}
+      <InvoicePaperModal
+        open={!!invoiceIds}
+        saleIds={invoiceIds}
         client={cl}
-        saleIds={paperSaleIds}
-        onClose={() => setPaperSaleIds(null)}
+        canEdit={isManager}
+        onClose={() => setInvoiceIds(null)}
+        onSaved={load}
       />
     </div>
   );

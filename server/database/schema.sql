@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS `sales` (
   `voided_at`        DATETIME      DEFAULT NULL,
   `voided_by`        VARCHAR(120)  DEFAULT NULL,
   `note`             VARCHAR(500)  DEFAULT NULL,
+  `invoice_template_id` INT(11)    DEFAULT NULL,             -- template this invoice prints with
+  `invoice_layout`   LONGTEXT      DEFAULT NULL,             -- per-invoice edited elements snapshot (JSON), overrides template
   `created_at`       TIMESTAMP     NOT NULL DEFAULT current_timestamp(),
   `updated_at`       TIMESTAMP     NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -310,6 +312,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
   `business_id`    INT(11)       NOT NULL DEFAULT 1,
   `business_name`  VARCHAR(190)  NOT NULL DEFAULT 'Chomnenh',
   `logo_url`       VARCHAR(500)  DEFAULT NULL,
+  `khqr_url`       VARCHAR(500)  DEFAULT NULL,   -- KHQR payment image for invoice papers
   `banner_urls`    TEXT          DEFAULT NULL,   -- JSON array of up to 4 public-menu banners
   `phone`          VARCHAR(40)   DEFAULT NULL,
   `address`        VARCHAR(255)  DEFAULT NULL,
@@ -322,6 +325,21 @@ CREATE TABLE IF NOT EXISTS `settings` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_settings_business` (`business_id`),
   CONSTRAINT `fk_settings_business` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Invoice templates (freeform canvas invoice builder) ────────────────────
+CREATE TABLE IF NOT EXISTS `invoice_templates` (
+  `id`          INT(11)       NOT NULL AUTO_INCREMENT,
+  `business_id` INT(11)       NOT NULL DEFAULT 1,
+  `name`        VARCHAR(120)  NOT NULL DEFAULT 'Template',
+  `is_default`  TINYINT(1)    NOT NULL DEFAULT 0,
+  `elements`    LONGTEXT      DEFAULT NULL,   -- JSON array of layout blocks
+  `created_by`  INT(11)       DEFAULT NULL,
+  `created_at`  TIMESTAMP     NOT NULL DEFAULT current_timestamp(),
+  `updated_at`  TIMESTAMP     NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_tpl_business` (`business_id`),
+  CONSTRAINT `fk_tpl_business` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO `businesses` (`id`, `name`) VALUES (1, 'Chomnenh');

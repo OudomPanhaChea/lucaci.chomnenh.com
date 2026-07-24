@@ -129,6 +129,11 @@ export interface Sale {
   voided_at?: string | null;
   voided_by?: string | null;
   note: string | null;
+  invoice_template_id?: number | null;
+  invoice_layout?: import("@/components/invoice-template/types").TemplateElement[] | null;
+  // The client's current remaining old owing, joined onto the sale so the
+  // invoice paper can print a "Previous owing" line (null = walk-in / none).
+  client_opening_owing?: number | string | null;
   created_at: string;
   item_count?: number;
   items?: SaleItem[];
@@ -229,6 +234,7 @@ export interface Settings {
   business_id?: number;
   business_name: string;
   logo_url: string | null;
+  khqr_url: string | null;
   banners: string[]; // public menu carousel, max 4 (server-enforced)
   phone: string | null;
   address: string | null;

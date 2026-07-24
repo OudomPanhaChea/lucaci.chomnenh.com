@@ -4,15 +4,19 @@ import { DatePicker, Input, Select, Table } from "antd";
 import dayjs, { Dayjs } from "dayjs";
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
+import { useAuth } from "@/hooks/useAuth";
 import { SectionHeader } from "@/components/ui/section-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import InvoiceDetailModal from "@/components/invoice-detail-modal";
+import InvoicePaperModal from "@/components/invoice-template/invoice-paper-modal";
 import { money, fmtDate, num } from "@/lib/format";
 import type { Sale } from "@/lib/types";
 
 const { RangePicker } = DatePicker;
 
 export default function InvoicesPage() {
+  const { user } = useAuth();
+  const isManager = user?.role === "owner" || user?.role === "admin";
   const [rows, setRows] = useState<Sale[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -22,6 +26,7 @@ export default function InvoicesPage() {
   const [method, setMethod] = useState<string | undefined>();
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [invoiceIds, setInvoiceIds] = useState<number[] | null>(null); // canvas invoice paper
 
   const load = useCallback(() => {
     setLoading(true);
@@ -108,7 +113,25 @@ export default function InvoicesPage() {
         />
       </div>
 
-      <InvoiceDetailModal saleId={detailId} onClose={() => setDetailId(null)} onChanged={load} />
+      {/* Close the detail modal before opening the paper so it doesn't stack
+          on top of the invoice preview */}
+      <InvoiceDetailModal
+        saleId={detailId}
+        onClose={() => setDetailId(null)}
+        onChanged={load}
+        onPaper={(id) => {
+          setDetailId(null);
+          setInvoiceIds([id]);
+        }}
+      />
+
+      <InvoicePaperModal
+        open={!!invoiceIds}
+        saleIds={invoiceIds}
+        canEdit={isManager}
+        onClose={() => setInvoiceIds(null)}
+        onSaved={load}
+      />
     </div>
   );
 }
