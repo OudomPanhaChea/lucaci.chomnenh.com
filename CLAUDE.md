@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-20 (PWA pull-to-refresh + mobile drawer swipe + socket resume-on-wake)
+> Last updated: 2026-07-24 (selected invoices merge into one combined invoice paper, paginated)
 
 ## 1. What this project is
 
@@ -1346,6 +1346,39 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
 - Verified: `next build` passes, server files `node --check` clean, and the delete SQL
   was dry-run against the local voided test sale (#5) inside a ROLLED-BACK transaction:
   sale gone, `sale_items` 1→0 and `payments` 2→0 via cascade, then restored on rollback.
+
+### Done (2026-07-24): selected invoices merge into ONE combined invoice paper
+- Owner complaint: on the client details page, ticking several invoices and pressing
+  Invoice printed each as its OWN A4 sheet with its OWN totals. Now they merge into a
+  single invoice document, **grouped by invoice** (each invoice number as a subheading,
+  its items beneath) with **one grand total** summing every selected invoice, still on the
+  custom invoice template, splitting onto a new A4 sheet only when the items overflow.
+- `resolveCombinedInvoiceData(sales, settings, oldOwing)` in
+  `components/invoice-template/bindings.ts`: concatenates each sale's items behind a
+  `heading` row (new optional `InvoiceItemRow.heading`), sums subtotal/total/paid/balance,
+  folds previous owing in ONCE, header fields show `N invoices` + a first–last date range.
+  `element-view.tsx` `ItemsTable` renders a `heading` row as a bold brand `colSpan=4`
+  invoice-number subheading.
+- New `components/invoice-template/paginated-invoice.tsx` replaces the plain
+  `TemplateCanvas` in `invoice-paper-modal.tsx` for BOTH the combined and single paths.
+  It keeps the fixed absolutely-positioned template but paginates the `items` element:
+  a hidden measuring pass reads real per-row heights (re-measured on `document.fonts.ready`),
+  rows are dealt into pages that fit `itemsEl.h`, elements ABOVE the items table
+  (`y < itemsEl.y`) repeat on every sheet, elements AT/BELOW it (totals/QR/thank-you,
+  `y >= itemsEl.y`) print on the LAST sheet only. No items / zero rows → a single sheet.
+  This also gives single long invoices real overflow pagination for free; a normal-length
+  invoice still renders one identical sheet. Each sheet keeps `data-paper-page`, so
+  `PaperModal`'s JPG/PDF export is unchanged.
+- A merged document has no single layout, so it is NOT editable (`editable = canEdit &&
+  !owingOnly && !combined`); the per-sheet Edit button (only ever shown for the old
+  multi-sheet case) was removed. Single-invoice footer Edit is untouched. Combined uses the
+  default template (`is_default || templates[0]`). Owing toolbar suffix now
+  `(applied once to the total)`.
+- Verified headless per the verify skill (scratchpad `verify-combined.js`, 13/13): 2
+  fixture invoices → ONE paper on 2 A4 sheets (each 794x1123), both numbers as headings,
+  totals block only on the last sheet with combined subtotal/paid/balance cross-checked
+  against the sale API, `2 invoices` in the header on every page; a single ticked invoice
+  still renders exactly one sheet. Fixtures self-clean (void + delete). `next build` passes.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;

@@ -12,6 +12,9 @@ export interface InvoiceItemRow {
   rate: string;
   amount: string;
   free: boolean;
+  // When set, this row is an invoice-number subheading (combined invoices,
+  // grouped by invoice) rather than a line item; name/qty/rate/amount are empty.
+  heading?: string;
 }
 
 export interface InvoiceData {
@@ -93,6 +96,84 @@ export function resolveInvoiceData(sale: Sale, settings: Settings | null, oldOwi
   };
 }
 
+// Several invoices merged into ONE document: items grouped under each invoice
+// number (a `heading` row per sale, then its line items) with a single grand
+// total summing every selected invoice. oldOwing is folded in exactly once
+// (never per-sale), mirroring resolveInvoiceData's owing handling.
+export function resolveCombinedInvoiceData(
+  sales: Sale[], settings: Settings | null, oldOwing = 0,
+): InvoiceData {
+  const rate = settings ? Number(settings.exchange_rate) : 4100;
+  const subtotal = sales.reduce((s, x) => s + Number(x.subtotal), 0);
+  const total = sales.reduce((s, x) => s + Number(x.total), 0);
+  const paid = sales.reduce((s, x) => s + Number(x.amount_paid), 0);
+  const balance = total - paid;
+  const prevOwing = Number(oldOwing) || 0;
+  const grandTotal = balance + prevOwing;
+  const dueBase = prevOwing > 0 ? grandTotal : balance > 0 ? balance : total;
+
+  const items: InvoiceItemRow[] = [];
+  sales.forEach((sale) => {
+    items.push({ heading: sale.invoice_number, name: "", qty: "", rate: "", amount: "", free: false });
+    (sale.items ?? []).forEach((it) =>
+      items.push({
+        name: it.name_snapshot,
+        qty: `${num(it.quantity)} ${it.unit_name ?? it.base_unit ?? "pcs"}`.trim(),
+        rate: it.is_bonus ? "FREE" : money(it.price),
+        amount: it.is_bonus ? "FREE" : money(it.line_total),
+        free: !!it.is_bonus,
+      }),
+    );
+  });
+
+  const first = sales[0];
+  const last = sales[sales.length - 1];
+  const d0 = dayjs(first.created_at);
+  const d1 = dayjs(last.created_at);
+  const dateRange = d0.isSame(d1, "day")
+    ? d0.format("YYYY-MM-DD")
+    : `${d0.format("YYYY-MM-DD")} – ${d1.format("YYYY-MM-DD")}`;
+
+  const fields: Record<string, string> = {
+    business_name: settings?.business_name || "Chomnenh",
+    business_address: settings?.address || "",
+    business_phone: settings?.phone || "",
+    invoice_number: `${sales.length} invoices`,
+    issue_date: dateRange,
+    due_date: dateRange,
+    client_name: first.client_name || "Walk-in customer",
+    client_phone: "",
+    client_address: "",
+    amount_due: money(dueBase),
+    subtotal: money(subtotal),
+    total: money(total),
+    paid: money(paid),
+    balance: money(balance),
+    previous_owing: money(prevOwing),
+    grand_total: money(grandTotal),
+    cashier_name: first.cashier_name || "",
+    note: "",
+  };
+
+  return {
+    fields,
+    items,
+    totals: {
+      subtotal: money(subtotal),
+      total: money(total),
+      paid: money(paid),
+      balance: money(balance),
+      khr: `≈ ${Math.round(dueBase * rate).toLocaleString("en-US")} ៛`,
+      previousOwing: money(prevOwing),
+      grandTotal: money(grandTotal),
+      hasOwing: prevOwing > 0,
+      invoiceEmpty: false,
+    },
+    logoUrl: settings?.logo_url ?? null,
+    khqrUrl: settings?.khqr_url ?? null,
+  };
+}
+
 // Sample data for the editor preview (Settings, no real invoice yet).
 export function sampleInvoiceData(settings: Settings | null): InvoiceData {
   const fields: Record<string, string> = {};
@@ -103,9 +184,9 @@ export function sampleInvoiceData(settings: Settings | null): InvoiceData {
   return {
     fields,
     items: [
-      { name: "ស្គ្រាប់ NC ធំ", qty: "960 កំប៉ុង", rate: "$5.30", amount: "$5,088.00", free: false },
-      { name: "ស្គ្រាប់ NC ធំ", qty: "1000 កំប៉ុង", rate: "$5.30", amount: "$5,300.00", free: false },
-      { name: "ប្រេង", qty: "1000 ដប", rate: "$2.90", amount: "$2,900.00", free: false },
+      { name: "Mecira ស្រ្កាប់ពន្លៃ", qty: "960 កំប៉ុង", rate: "$5.30", amount: "$5,088.00", free: false },
+      { name: "Mecira ស្ក្រាប់កាហ្វេ", qty: "1000 កំប៉ុង", rate: "$5.30", amount: "$5,300.00", free: false },
+      { name: "Lucaci Sun Cream", qty: "1000 ដប", rate: "$2.90", amount: "$2,900.00", free: false },
     ],
     totals: { subtotal: "13,288.00", total: "$13,288.00", paid: "$0.00", balance: "$13,288.00", khr: "≈ 54,480,800 ៛", previousOwing: "$0.00", grandTotal: "$13,288.00", hasOwing: false, invoiceEmpty: false },
     logoUrl: settings?.logo_url ?? null,

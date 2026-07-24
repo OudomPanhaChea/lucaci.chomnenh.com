@@ -114,14 +114,23 @@ function ItemsTable({ el, data }: { el: TemplateElement; data: InvoiceData }) {
         </tr>
       </thead>
       <tbody>
-        {data.items.map((it, i) => (
-          <tr key={i}>
-            <td style={{ ...td, fontWeight: 500 }}>{it.name}</td>
-            <td style={{ ...td, textAlign: "right" }}>{it.rate}</td>
-            <td style={{ ...td, textAlign: "right" }}>{it.qty}</td>
-            <td style={{ ...td, textAlign: "right", paddingRight: 0, fontWeight: 500 }}>{it.amount}</td>
-          </tr>
-        ))}
+        {data.items.map((it, i) =>
+          it.heading ? (
+            // Invoice-number subheading (combined invoices grouped by invoice)
+            <tr key={i}>
+              <td colSpan={4} style={{ fontSize: fs, fontWeight: 700, color: LABEL, padding: "12px 0 5px" }}>
+                {it.heading}
+              </td>
+            </tr>
+          ) : (
+            <tr key={i}>
+              <td style={{ ...td, fontWeight: 500 }}>{it.name}</td>
+              <td style={{ ...td, textAlign: "right" }}>{it.rate}</td>
+              <td style={{ ...td, textAlign: "right" }}>{it.qty}</td>
+              <td style={{ ...td, textAlign: "right", paddingRight: 0, fontWeight: 500 }}>{it.amount}</td>
+            </tr>
+          ),
+        )}
       </tbody>
     </table>
   );

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Checkbox } from "antd";
-import { Pencil, FileWarning } from "lucide-react";
+import { FileWarning } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { money } from "@/lib/format";
 import PaperModal, { usePaperSettings } from "@/components/paper/paper-modal";
@@ -13,8 +13,8 @@ import { paperSlug } from "@/components/paper/paper";
 import dayjs from "dayjs";
 import type { Sale } from "@/lib/types";
 import type { InvoiceTemplate, TemplateElement } from "./types";
-import { resolveInvoiceData } from "./bindings";
-import TemplateCanvas from "./template-canvas";
+import { resolveInvoiceData, resolveCombinedInvoiceData } from "./bindings";
+import PaginatedInvoice from "./paginated-invoice";
 import TemplateEditorModal from "./template-editor-modal";
 
 // A print-only stand-in invoice for the "previous owing, no invoices" case, so
@@ -142,10 +142,21 @@ export default function InvoicePaperModal({
   };
 
   const single = displaySales && displaySales.length === 1 ? displaySales[0] : null;
+  // Several invoices are merged into ONE document (grouped by invoice, one grand
+  // total) rendered from a single template; per-invoice saved layouts don't apply.
+  const combined = !!displaySales && displaySales.length > 1;
+  const defaultTpl = templates.find((t) => t.is_default) || templates[0] || null;
+  const combinedData = useMemo(
+    () => (combined && displaySales
+      ? resolveCombinedInvoiceData(displaySales, settings, includeOwing ? clientOwing : 0)
+      : null),
+    [combined, displaySales, settings, includeOwing, clientOwing],
+  );
   const anyTemplate = templates.length > 0;
   const ready = !!displaySales && displaySales.length > 0 && anyTemplate;
-  // The synthetic owing invoice has no real id/number, so it is never editable.
-  const editable = canEdit && !owingOnly;
+  // The synthetic owing invoice has no real id/number, and a merged document has
+  // no single layout, so neither is editable.
+  const editable = canEdit && !owingOnly && !combined;
 
   const title = owingOnly
     ? "Invoice"
@@ -175,7 +186,7 @@ export default function InvoicePaperModal({
           <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
             <Checkbox checked={includeOwing} onChange={(e) => setIncludeOwing(e.target.checked)} />
             Include {money(clientOwing)} previous owing
-            {sales && sales.length > 1 ? " (on the last invoice)" : ""}
+            {combined ? " (applied once to the total)" : ""}
           </label>
         ) : null}
       >
@@ -189,21 +200,15 @@ export default function InvoicePaperModal({
               description="Create and set a default invoice template in Settings → Invoice template first."
             />
           </div>
+        ) : combined && combinedData ? (
+          <PaginatedInvoice elements={defaultTpl?.elements ?? []} data={combinedData} scale={1} />
         ) : (
           displaySales.map((sale) => {
             const { elements } = elementsFor(sale);
             const data = resolveInvoiceData(sale, settings, oldOwingFor(sale));
             return (
               <div key={sale.id} className="group relative">
-                {editable && !single && (
-                  <button
-                    onClick={() => setEditing(sale)}
-                    className="absolute right-2 top-2 z-10 flex cursor-pointer items-center gap-1 rounded-lg border border-line bg-surface-raised/95 px-2.5 py-1 text-xs font-medium text-fg-muted shadow-card backdrop-blur transition-colors duration-200 hover:text-brand"
-                  >
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>
-                )}
-                <TemplateCanvas elements={elements} data={data} scale={1} />
+                <PaginatedInvoice elements={elements} data={data} scale={1} />
               </div>
             );
           })

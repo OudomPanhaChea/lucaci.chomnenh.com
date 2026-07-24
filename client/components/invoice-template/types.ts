@@ -79,7 +79,7 @@ export interface InvoiceTemplate {
 
 // The dynamic values a `field` element can bind to. label = default caption.
 export const FIELD_BINDINGS: { key: string; label: string; sample: string }[] = [
-  { key: "business_name", label: "Business", sample: "NC Brand" },
+  { key: "business_name", label: "Business", sample: "Lucaci" },
   { key: "business_address", label: "Address", sample: "Phnom Penh" },
   { key: "business_phone", label: "Tel", sample: "012 345 678" },
   { key: "invoice_number", label: "Invoice Number", sample: "168" },
@@ -95,7 +95,7 @@ export const FIELD_BINDINGS: { key: string; label: string; sample: string }[] = 
   { key: "balance", label: "Balance Due", sample: "$13,000.00" },
   { key: "previous_owing", label: "Previous Owing", sample: "$1,000.00" },
   { key: "grand_total", label: "Grand Total Owing", sample: "$14,000.00" },
-  { key: "cashier_name", label: "Issued by", sample: "Chhing NC" },
+  { key: "cashier_name", label: "Issued by", sample: "Lucaci" },
   { key: "note", label: "Note", sample: "Thank you for your business." },
 ];
 
