@@ -94,7 +94,7 @@ export const FIELD_BINDINGS: { key: string; label: string; sample: string }[] = 
   { key: "paid", label: "Paid", sample: "$0.00" },
   { key: "balance", label: "Balance Due", sample: "$13,000.00" },
   { key: "previous_owing", label: "Previous Owing", sample: "$1,000.00" },
-  { key: "grand_total", label: "Grand Total Owing", sample: "$14,000.00" },
+  { key: "grand_total", label: "Grand Total", sample: "$14,000.00" },
   { key: "cashier_name", label: "Issued by", sample: "Lucaci" },
   { key: "note", label: "Note", sample: "Thank you for your business." },
 ];

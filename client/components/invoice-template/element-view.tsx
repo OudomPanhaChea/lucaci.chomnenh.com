@@ -155,7 +155,7 @@ function TotalsBlock({ el, data }: { el: TemplateElement; data: InvoiceData }) {
     return (
       <div style={{ width: "100%", color: el.color ?? "#142332" }}>
         <div style={row}><span>Previous Owing</span><span>{data.totals.previousOwing}</span></div>
-        <div style={grand}><span>Grand Total Owing</span><span>{data.totals.grandTotal}</span></div>
+        <div style={grand}><span>Grand Total</span><span>{data.totals.grandTotal}</span></div>
       </div>
     );
   }
@@ -169,7 +169,7 @@ function TotalsBlock({ el, data }: { el: TemplateElement; data: InvoiceData }) {
         <>
           <div style={row}><span>{invoiceLabel}</span><span>{invoiceValue}</span></div>
           <div style={row}><span>Previous Owing</span><span>{data.totals.previousOwing}</span></div>
-          <div style={grand}><span>Grand Total Owing</span><span>{data.totals.grandTotal}</span></div>
+          <div style={grand}><span>Grand Total</span><span>{data.totals.grandTotal}</span></div>
         </>
       ) : (
         <div style={grand}><span>{invoiceLabel}</span><span>{invoiceValue}</span></div>
