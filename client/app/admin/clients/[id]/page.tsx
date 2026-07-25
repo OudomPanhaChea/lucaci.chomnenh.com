@@ -55,6 +55,8 @@ export default function ClientDetailsPage() {
   // Canvas invoice paper: one or many invoices, or [] = owing-only statement
   // (previous owing rendered on the same canvas as a synthetic invoice).
   const [invoiceIds, setInvoiceIds] = useState<number[] | null>(null);
+  // Subset of invoiceIds shown as a "previously billed" balance line only.
+  const [owingOnlyIds, setOwingOnlyIds] = useState<number[]>([]);
 
   const load = useCallback(() => {
     setStmtLoading(true);
@@ -263,7 +265,10 @@ export default function ClientDetailsPage() {
                     canPaperAlone={oldOwing > 0}
                     onOpenInvoice={setDetailId}
                     onPay={(s) => setPaySale({ ...s, client_id: clientId } as Sale)}
-                    onCreatePaper={setInvoiceIds}
+                    onCreatePaper={(ids, owingOnly) => {
+                      setOwingOnlyIds(owingOnly ?? []);
+                      setInvoiceIds(ids);
+                    }}
                   />
                 ),
               },
@@ -333,6 +338,7 @@ export default function ClientDetailsPage() {
         onChanged={load}
         onPaper={(id) => {
           setDetailId(null);
+          setOwingOnlyIds([]);
           setInvoiceIds([id]);
         }}
       />
@@ -344,6 +350,7 @@ export default function ClientDetailsPage() {
       <InvoicePaperModal
         open={!!invoiceIds}
         saleIds={invoiceIds}
+        owingOnlyIds={owingOnlyIds}
         client={cl}
         canEdit={isManager}
         onClose={() => setInvoiceIds(null)}

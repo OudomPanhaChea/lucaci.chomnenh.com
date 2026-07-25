@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-24 (selected invoices merge into one combined invoice paper, paginated)
+> Last updated: 2026-07-25 (per-invoice "Owing only" collapse in the combined invoice paper)
 
 ## 1. What this project is
 
@@ -1379,6 +1379,42 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   totals block only on the last sheet with combined subtotal/paid/balance cross-checked
   against the sale API, `2 invoices` in the header on every page; a single ticked invoice
   still renders exactly one sheet. Fixtures self-clean (void + delete). `next build` passes.
+
+### Done (2026-07-25): per-invoice "Owing only" collapse in the combined invoice
+- Owner need: when merging several invoices, an invoice already handed to the client
+  should carry its BALANCE forward, not re-list its items (the client already has that
+  paper). Editing was the wrong tool (the canvas editor only moves template elements; it
+  never controls which line items appear), so this is a per-invoice display choice.
+- `resolveCombinedInvoiceData(sales, settings, oldOwing, owingOnlyIds=[])` in
+  `bindings.ts`: sales in `owingOnlyIds` are collapsed to ONE row (`INV-… · YYYY-MM-DD`
+  + its balance) and grouped LAST under a `បុងចាស់ · Previously billed` section heading;
+  fully itemized invoices print first. Totals math is UNCHANGED (grand total still sums
+  every sale's total/paid, so the owing is identical whether an invoice shows items or a
+  balance line) — collapsing is purely display.
+- Totals simplify when any invoice is collapsed: new `totals.owingSummary` flag drops the
+  Subtotal/Paid/Total breakdown (the item amounts no longer foot to a Total) and shows
+  only Amount Owing / Previous Owing / **Total Owing** (`element-view.tsx` `TotalsBlock`,
+  same branch that already handled the owing-only statement; its wording moved from
+  "Grand Total" to "Total Owing"). Fully-itemized combos keep the normal totals.
+- `ItemsTable` grouping made legible for a mix of invoices: each `heading` row is now a
+  tinted band (`#f4f7f8` + top hairline), and item names indent under their heading
+  when the doc is grouped (`grouped = items.some(it => it.heading)`). Single invoices are
+  visually unchanged (no headings → no indent/band).
+- UI (`clients/purchase-history.tsx`): the collapse control is a per-row reveal. Ticking
+  2+ invoices drops a full-width sub-row under each selected invoice holding a single
+  checkbox labelled `បុងចាស់` (checked = carry that invoice forward as a balance line).
+  The row split into a clickable top part + the sub-row (li is `overflow-hidden rounded`,
+  onClick moved to the inner div, sub-row `stopPropagation`). Selection bar gained a
+  `· N balance only` hint.
+  Threaded `saleIds`→`owingOnlyIds` through `onCreatePaper(ids, owingOnlyIds)` →
+  page state → `InvoicePaperModal owingOnlyIds` prop → `resolveCombinedInvoiceData`. The
+  toggle only shows when 2+ are selected (meaningless for a single invoice).
+- E2E verified headless per the verify skill (scratchpad `verify-combined-owing.js`,
+  21/21) against client 10 (2 unpaid invoices $57 + $65, opening owing $500): both-full
+  → normal totals with Subtotal + Grand Total $622; mark one Owing only → collapsed line
+  $65 under the Previously-billed section at the bottom, itemized invoice still full, totals
+  reduce to Amount Owing $122 / Previous Owing $500 / Total Owing $622 (unchanged), sheets
+  A4 794x1123, ordering itemized-before-collapsed. Screenshots eyeballed. `next build` passes.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;

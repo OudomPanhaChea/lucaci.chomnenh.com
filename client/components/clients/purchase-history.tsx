@@ -15,8 +15,11 @@ const isSelectable = (s: Sale) => s.status !== "voided";
 
 // Purchase list of the client details page. Any non-voided invoice can be
 // ticked (or all at once) to print them as invoice-canvas papers
-// (onCreatePaper(ids)). With nothing ticked, a client carrying previous owing
-// can still print an owing-only statement (onCreatePaper([])).
+// (onCreatePaper(ids, owingOnlyIds)). When 2+ are ticked they merge into one
+// combined invoice; each can be flagged "owing only" so an already-sent invoice
+// shows just its balance instead of re-listing its items. With nothing ticked, a
+// client carrying previous owing can still print an owing-only statement
+// (onCreatePaper([])).
 export default function PurchaseHistory({
   sales,
   loading,
@@ -32,14 +35,17 @@ export default function PurchaseHistory({
   canPaperAlone?: boolean; // client has previous owing to print on its own
   onOpenInvoice: (id: number) => void;
   onPay: (s: Sale) => void;
-  onCreatePaper: (saleIds: number[]) => void;
+  onCreatePaper: (saleIds: number[], owingOnlyIds?: number[]) => void;
 }) {
   const [sel, setSel] = useState<number[]>([]);
+  // Ticked invoices flagged to print as a balance line only (subset of sel).
+  const [owingOnly, setOwingOnly] = useState<number[]>([]);
   const selectable = useMemo(() => sales.filter(isSelectable), [sales]);
 
   // Drop selections that no longer exist or got voided meanwhile
   useEffect(() => {
     setSel((prev) => prev.filter((id) => selectable.some((s) => s.id === id)));
+    setOwingOnly((prev) => prev.filter((id) => selectable.some((s) => s.id === id)));
   }, [selectable]);
 
   if (loading)
@@ -70,6 +76,8 @@ export default function PurchaseHistory({
   const selected = selectable.filter((s) => sel.includes(s.id));
   const selOwing = selected.reduce((sum, s) => sum + balanceOf(s), 0);
   const allChecked = selectable.length > 0 && sel.length === selectable.length;
+  // How many of the currently selected invoices will print as a balance line only.
+  const balanceOnlyCount = owingOnly.filter((id) => sel.includes(id)).length;
 
   return (
     <div>
@@ -79,9 +87,10 @@ export default function PurchaseHistory({
             <Checkbox
               checked={allChecked}
               indeterminate={sel.length > 0 && !allChecked}
-              onChange={(e) =>
-                setSel(e.target.checked ? selectable.map((s) => s.id) : [])
-              }
+              onChange={(e) => {
+                setSel(e.target.checked ? selectable.map((s) => s.id) : []);
+                if (!e.target.checked) setOwingOnly([]);
+              }}
             />
             Select all
           </label>
@@ -97,12 +106,18 @@ export default function PurchaseHistory({
                     </span>
                   </>
                 )}
+                {balanceOnlyCount > 0 && (
+                  <span className="font-normal text-fg-muted">
+                    {" · "}
+                    {balanceOnlyCount} balance only
+                  </span>
+                )}
               </span>
               <Button
                 type="primary"
                 size="medium"
                 icon={<Printer className="h-3.5 w-3.5" />}
-                onClick={() => onCreatePaper(sel)}
+                onClick={() => onCreatePaper(sel, owingOnly)}
               >
                 Invoice
               </Button>
@@ -132,68 +147,97 @@ export default function PurchaseHistory({
           return (
             <li
               key={s.id}
-              onClick={() => onOpenInvoice(s.id)}
-              className={`group flex cursor-pointer items-center gap-3 rounded-lg border px-2.5 py-2.5 text-sm transition-colors duration-150 hover:bg-surface-sunken/50 ${
+              className={`group overflow-hidden rounded-lg border text-sm transition-colors duration-150 ${
                 sel.includes(s.id)
                   ? "border-line bg-brand-soft/40"
                   : "border-transparent"
               }`}
             >
-              {canTick && (
-                <span
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex items-center"
-                >
-                  <Checkbox
-                    checked={sel.includes(s.id)}
-                    aria-label={`Select ${s.invoice_number} for the statement paper`}
-                    onChange={(e) =>
-                      setSel((prev) =>
-                        e.target.checked
-                          ? [...prev, s.id]
-                          : prev.filter((x) => x !== s.id),
-                      )
-                    }
-                  />
-                </span>
-              )}
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-foreground">
-                <ReceiptText className="h-4.5 w-4.5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 font-medium text-fg">
-                  <span className="truncate">
-                    {fmtDate(s.created_at, "dd MMM yyyy")}
+              <div
+                onClick={() => onOpenInvoice(s.id)}
+                className="flex cursor-pointer items-center gap-3 px-2.5 py-2.5 transition-colors duration-150 hover:bg-surface-sunken/50"
+              >
+                {canTick && (
+                  <span
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center"
+                  >
+                    <Checkbox
+                      checked={sel.includes(s.id)}
+                      aria-label={`Select ${s.invoice_number} for the combined invoice`}
+                      onChange={(e) => {
+                        setSel((prev) =>
+                          e.target.checked
+                            ? [...prev, s.id]
+                            : prev.filter((x) => x !== s.id),
+                        );
+                        if (!e.target.checked)
+                          setOwingOnly((prev) => prev.filter((x) => x !== s.id));
+                      }}
+                    />
                   </span>
-                  <StatusBadge status={s.status} />
-                </p>
-                <p className="truncate font-mono text-xs text-fg-subtle">
-                  {s.invoice_number}
-                  {s.item_count ? `, ${num(s.item_count)} items` : ""}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="tabular font-medium text-fg">{money(s.total)}</p>
-                {owes && (
-                  <p className="tabular text-xs text-rose-600 dark:text-rose-400">
-                    {money(bal)} owing
-                  </p>
                 )}
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-foreground">
+                  <ReceiptText className="h-4.5 w-4.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 font-medium text-fg">
+                    <span className="truncate">
+                      {fmtDate(s.created_at, "dd MMM yyyy")}
+                    </span>
+                    <StatusBadge status={s.status} />
+                  </p>
+                  <p className="truncate font-mono text-xs text-fg-subtle">
+                    {s.invoice_number}
+                    {s.item_count ? `, ${num(s.item_count)} items` : ""}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="tabular font-medium text-fg">{money(s.total)}</p>
+                  {owes && (
+                    <p className="tabular text-xs text-rose-600 dark:text-rose-400">
+                      {money(bal)} owing
+                    </p>
+                  )}
+                </div>
+                {owes && (
+                  <Button
+                    size="middle"
+                    variant="solid"
+                    icon={<HandCoins className="h-3.5 w-3.5" />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPay(s);
+                    }}
+                  >
+                    Pay
+                  </Button>
+                )}
+                <ChevronRight className="h-4 w-4 shrink-0 text-fg-subtle transition-colors duration-150 group-hover:text-fg" />
               </div>
-              {owes && (
-                <Button
-                  size="middle"
-                  variant="solid"
-                  icon={<HandCoins className="h-3.5 w-3.5" />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPay(s);
-                  }}
+              {/* Revealed when combining 2+ invoices: tick to carry THIS invoice
+                  forward as a balance line only (an already-sent invoice: keep the
+                  debt, skip re-listing its items). */}
+              {sel.includes(s.id) && sel.length > 1 && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center border-t border-line/60 bg-surface-sunken/30 px-3 py-2"
                 >
-                  Pay
-                </Button>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-fg-muted">
+                    <Checkbox
+                      checked={owingOnly.includes(s.id)}
+                      onChange={(e) =>
+                        setOwingOnly((prev) =>
+                          e.target.checked
+                            ? [...prev, s.id]
+                            : prev.filter((x) => x !== s.id),
+                        )
+                      }
+                    />
+                    បុងចាស់
+                  </label>
+                </div>
               )}
-              <ChevronRight className="h-4 w-4 shrink-0 text-fg-subtle transition-colors duration-150 group-hover:text-fg" />
             </li>
           );
         })}

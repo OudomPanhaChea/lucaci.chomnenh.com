@@ -103,6 +103,10 @@ function ItemsTable({ el, data }: { el: TemplateElement; data: InvoiceData }) {
   };
   const td: CSSProperties = { fontSize: fs, padding: "7px 8px 7px 0", borderBottom: "1px solid #eef1f3", color: el.color ?? "#142332", verticalAlign: "top" };
   const L = el.itemLabels ?? {};
+  // Combined invoices carry `heading` rows (one per invoice number, plus a
+  // "previously billed" section). Band those headings and indent the items under
+  // them so a reader can tell the invoices apart at a glance.
+  const grouped = data.items.some((it) => it.heading);
   return (
     <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
       <thead>
@@ -116,15 +120,23 @@ function ItemsTable({ el, data }: { el: TemplateElement; data: InvoiceData }) {
       <tbody>
         {data.items.map((it, i) =>
           it.heading ? (
-            // Invoice-number subheading (combined invoices grouped by invoice)
+            // Invoice-number subheading (combined invoices grouped by invoice):
+            // a tinted band so groups are easy to scan.
             <tr key={i}>
-              <td colSpan={4} style={{ fontSize: fs, fontWeight: 700, color: LABEL, padding: "12px 0 5px" }}>
+              <td
+                colSpan={4}
+                style={{
+                  fontSize: fs, fontWeight: 700, color: LABEL,
+                  padding: "8px 10px 7px", background: "#f4f7f8",
+                  borderTop: "1px solid #e3e9ec",
+                }}
+              >
                 {it.heading}
               </td>
             </tr>
           ) : (
             <tr key={i}>
-              <td style={{ ...td, fontWeight: 500 }}>{it.name}</td>
+              <td style={{ ...td, fontWeight: 500, paddingLeft: grouped ? 24 : 0 }}>{it.name}</td>
               <td style={{ ...td, textAlign: "right" }}>{it.rate}</td>
               <td style={{ ...td, textAlign: "right" }}>{it.qty}</td>
               <td style={{ ...td, textAlign: "right", paddingRight: 0, fontWeight: 500 }}>{it.amount}</td>
@@ -150,12 +162,21 @@ function TotalsBlock({ el, data }: { el: TemplateElement; data: InvoiceData }) {
   const invoiceLabel = hasPaid ? (L.balance ?? DEFAULT_TOTALS_LABELS.balance) : (L.total ?? DEFAULT_TOTALS_LABELS.total);
   const invoiceValue = hasPaid ? data.totals.balance : data.totals.total;
 
-  // Owing-only statement (no line items): show just the owing, no $0 rows.
-  if (hasOwing && data.totals.invoiceEmpty) {
+  // Owing summary: an owing-only statement (no line items), OR a combined invoice
+  // where some invoices are collapsed to a balance line. The item amounts no
+  // longer foot to a "Total", so drop the subtotal/paid breakdown and show only
+  // what is owed.
+  if (data.totals.owingSummary || (hasOwing && data.totals.invoiceEmpty)) {
+    const showBalance = hasOwing && data.totals.balance !== "$0.00";
     return (
       <div style={{ width: "100%", color: el.color ?? "#142332" }}>
-        <div style={row}><span>Previous Owing</span><span>{data.totals.previousOwing}</span></div>
-        <div style={grand}><span>Grand Total</span><span>{data.totals.grandTotal}</span></div>
+        {showBalance && (
+          <div style={row}><span>Amount Owing</span><span>{data.totals.balance}</span></div>
+        )}
+        {hasOwing && (
+          <div style={row}><span>Previous Owing</span><span>{data.totals.previousOwing}</span></div>
+        )}
+        <div style={grand}><span>Total Owing</span><span>{data.totals.grandTotal}</span></div>
       </div>
     );
   }

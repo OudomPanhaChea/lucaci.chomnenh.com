@@ -42,10 +42,13 @@ function buildOwingSale(name: string, oldOwing: number, exchangeRate: number): S
 // saleIds = [] with a client that owes prints an owing-only statement on the
 // same canvas (a synthetic invoice). Replaces the old account-statement paper.
 export default function InvoicePaperModal({
-  open, saleIds, client, canEdit, onClose, onSaved,
+  open, saleIds, owingOnlyIds, client, canEdit, onClose, onSaved,
 }: {
   open: boolean;
   saleIds: number[] | null;
+  // Subset of saleIds to collapse to a single "previously billed" balance line
+  // (already-sent invoices: carry the debt, don't re-list items). Combined only.
+  owingOnlyIds?: number[];
   client?: { name: string; opening_owing?: number | string | null } | null;
   canEdit: boolean;
   onClose: () => void;
@@ -148,9 +151,9 @@ export default function InvoicePaperModal({
   const defaultTpl = templates.find((t) => t.is_default) || templates[0] || null;
   const combinedData = useMemo(
     () => (combined && displaySales
-      ? resolveCombinedInvoiceData(displaySales, settings, includeOwing ? clientOwing : 0)
+      ? resolveCombinedInvoiceData(displaySales, settings, includeOwing ? clientOwing : 0, owingOnlyIds ?? [])
       : null),
-    [combined, displaySales, settings, includeOwing, clientOwing],
+    [combined, displaySales, settings, includeOwing, clientOwing, owingOnlyIds],
   );
   const anyTemplate = templates.length > 0;
   const ready = !!displaySales && displaySales.length > 0 && anyTemplate;

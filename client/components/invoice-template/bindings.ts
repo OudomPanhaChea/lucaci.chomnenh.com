@@ -28,6 +28,10 @@ export interface InvoiceData {
     // No line items (owing-only statement): the totals block drops the $0
     // subtotal/total rows and shows just the owing.
     invoiceEmpty: boolean;
+    // Combined invoice where at least one invoice is collapsed to a balance line:
+    // the item amounts no longer foot to a "Total", so the totals block drops the
+    // subtotal/paid breakdown and shows only the amount owing.
+    owingSummary: boolean;
   };
   logoUrl: string | null;
   khqrUrl: string | null;
@@ -90,6 +94,7 @@ export function resolveInvoiceData(sale: Sale, settings: Settings | null, oldOwi
       grandTotal: money(grandTotal),
       hasOwing: prevOwing > 0,
       invoiceEmpty: (sale.items?.length ?? 0) === 0,
+      owingSummary: false,
     },
     logoUrl: settings?.logo_url ?? null,
     khqrUrl: settings?.khqr_url ?? null,
@@ -100,8 +105,14 @@ export function resolveInvoiceData(sale: Sale, settings: Settings | null, oldOwi
 // number (a `heading` row per sale, then its line items) with a single grand
 // total summing every selected invoice. oldOwing is folded in exactly once
 // (never per-sale), mirroring resolveInvoiceData's owing handling.
+//
+// owingOnlyIds = sales the caller wants collapsed to a single "previously
+// billed" balance line instead of full item rows (an invoice already handed to
+// the client: carry its debt, don't re-list its items). Totals are unaffected:
+// the grand total still sums every sale's total/paid, so the owing is identical
+// whether an invoice shows its items or just its balance.
 export function resolveCombinedInvoiceData(
-  sales: Sale[], settings: Settings | null, oldOwing = 0,
+  sales: Sale[], settings: Settings | null, oldOwing = 0, owingOnlyIds: number[] = [],
 ): InvoiceData {
   const rate = settings ? Number(settings.exchange_rate) : 4100;
   const subtotal = sales.reduce((s, x) => s + Number(x.subtotal), 0);
@@ -112,8 +123,14 @@ export function resolveCombinedInvoiceData(
   const grandTotal = balance + prevOwing;
   const dueBase = prevOwing > 0 ? grandTotal : balance > 0 ? balance : total;
 
+  // Fully itemized invoices print first (each under its invoice-number heading);
+  // collapsed "already billed" invoices are grouped LAST under one section
+  // heading, so the reader sees the new goods, then the carried-forward balances.
+  const itemized = sales.filter((s) => !owingOnlyIds.includes(s.id));
+  const collapsed = sales.filter((s) => owingOnlyIds.includes(s.id));
+
   const items: InvoiceItemRow[] = [];
-  sales.forEach((sale) => {
+  itemized.forEach((sale) => {
     items.push({ heading: sale.invoice_number, name: "", qty: "", rate: "", amount: "", free: false });
     (sale.items ?? []).forEach((it) =>
       items.push({
@@ -125,6 +142,16 @@ export function resolveCombinedInvoiceData(
       }),
     );
   });
+  if (collapsed.length > 0) {
+    items.push({ heading: "បុងចាស់", name: "", qty: "", rate: "", amount: "", free: false });
+    collapsed.forEach((sale) => {
+      const bal = Number(sale.total) - Number(sale.amount_paid);
+      items.push({
+        name: `${sale.invoice_number}  ·  ${dayjs(sale.created_at).format("YYYY-MM-DD")}`,
+        qty: "", rate: "", amount: money(bal), free: false,
+      });
+    });
+  }
 
   const first = sales[0];
   const last = sales[sales.length - 1];
@@ -168,6 +195,7 @@ export function resolveCombinedInvoiceData(
       grandTotal: money(grandTotal),
       hasOwing: prevOwing > 0,
       invoiceEmpty: false,
+      owingSummary: collapsed.length > 0,
     },
     logoUrl: settings?.logo_url ?? null,
     khqrUrl: settings?.khqr_url ?? null,
@@ -188,7 +216,7 @@ export function sampleInvoiceData(settings: Settings | null): InvoiceData {
       { name: "Mecira ស្ក្រាប់កាហ្វេ", qty: "1000 កំប៉ុង", rate: "$5.30", amount: "$5,300.00", free: false },
       { name: "Lucaci Sun Cream", qty: "1000 ដប", rate: "$2.90", amount: "$2,900.00", free: false },
     ],
-    totals: { subtotal: "13,288.00", total: "$13,288.00", paid: "$0.00", balance: "$13,288.00", khr: "≈ 54,480,800 ៛", previousOwing: "$0.00", grandTotal: "$13,288.00", hasOwing: false, invoiceEmpty: false },
+    totals: { subtotal: "13,288.00", total: "$13,288.00", paid: "$0.00", balance: "$13,288.00", khr: "≈ 54,480,800 ៛", previousOwing: "$0.00", grandTotal: "$13,288.00", hasOwing: false, invoiceEmpty: false, owingSummary: false },
     logoUrl: settings?.logo_url ?? null,
     khqrUrl: settings?.khqr_url ?? null,
   };
