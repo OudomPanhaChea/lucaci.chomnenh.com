@@ -189,7 +189,6 @@ export default function InvoicePaperModal({
           <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
             <Checkbox checked={includeOwing} onChange={(e) => setIncludeOwing(e.target.checked)} />
             Include {money(clientOwing)} previous owing
-            {combined ? " (applied once to the total)" : ""}
           </label>
         ) : null}
       >

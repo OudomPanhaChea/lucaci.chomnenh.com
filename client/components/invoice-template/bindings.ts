@@ -25,13 +25,10 @@ export interface InvoiceData {
     // Set when previous owing is folded in (>0): the totals block then prints a
     // Previous owing line and a Grand Total Owing = balance + previous owing.
     previousOwing: string; grandTotal: string; hasOwing: boolean;
-    // No line items (owing-only statement): the totals block drops the $0
-    // subtotal/total rows and shows just the owing.
+    // No line items (owing-only statement, or a combined paper whose invoices are
+    // all carried forward): the totals block drops the $0 subtotal/total rows and
+    // shows just the owing.
     invoiceEmpty: boolean;
-    // Combined invoice where at least one invoice is collapsed to a balance line:
-    // the item amounts no longer foot to a "Total", so the totals block drops the
-    // subtotal/paid breakdown and shows only the amount owing.
-    owingSummary: boolean;
   };
   logoUrl: string | null;
   khqrUrl: string | null;
@@ -94,7 +91,6 @@ export function resolveInvoiceData(sale: Sale, settings: Settings | null, oldOwi
       grandTotal: money(grandTotal),
       hasOwing: prevOwing > 0,
       invoiceEmpty: (sale.items?.length ?? 0) === 0,
-      owingSummary: false,
     },
     logoUrl: settings?.logo_url ?? null,
     khqrUrl: settings?.khqr_url ?? null,
@@ -106,28 +102,27 @@ export function resolveInvoiceData(sale: Sale, settings: Settings | null, oldOwi
 // total summing every selected invoice. oldOwing is folded in exactly once
 // (never per-sale), mirroring resolveInvoiceData's owing handling.
 //
-// owingOnlyIds = sales the caller wants collapsed to a single "previously
-// billed" balance line instead of full item rows (an invoice already handed to
-// the client: carry its debt, don't re-list its items). Totals are unaffected:
-// the grand total still sums every sale's total/paid, so the owing is identical
-// whether an invoice shows its items or just its balance.
+// owingOnlyIds = sales the caller wants carried forward as debt instead of
+// re-listed (an invoice already handed to the client). Those invoices are NOT
+// printed at all, not even as a balance line: their outstanding balance is
+// summed into "previous owing" together with the client's old owing, so the
+// total owing is identical either way.
 export function resolveCombinedInvoiceData(
   sales: Sale[], settings: Settings | null, oldOwing = 0, owingOnlyIds: number[] = [],
 ): InvoiceData {
   const rate = settings ? Number(settings.exchange_rate) : 4100;
-  const subtotal = sales.reduce((s, x) => s + Number(x.subtotal), 0);
-  const total = sales.reduce((s, x) => s + Number(x.total), 0);
-  const paid = sales.reduce((s, x) => s + Number(x.amount_paid), 0);
+  // Only the itemized invoices are printed, so only they foot to the subtotal.
+  const itemized = sales.filter((s) => !owingOnlyIds.includes(s.id));
+  const carried = sales.filter((s) => owingOnlyIds.includes(s.id));
+
+  const subtotal = itemized.reduce((s, x) => s + Number(x.subtotal), 0);
+  const total = itemized.reduce((s, x) => s + Number(x.total), 0);
+  const paid = itemized.reduce((s, x) => s + Number(x.amount_paid), 0);
   const balance = total - paid;
-  const prevOwing = Number(oldOwing) || 0;
+  const carriedOwing = carried.reduce((s, x) => s + (Number(x.total) - Number(x.amount_paid)), 0);
+  const prevOwing = (Number(oldOwing) || 0) + carriedOwing;
   const grandTotal = balance + prevOwing;
   const dueBase = prevOwing > 0 ? grandTotal : balance > 0 ? balance : total;
-
-  // Fully itemized invoices print first (each under its invoice-number heading);
-  // collapsed "already billed" invoices are grouped LAST under one section
-  // heading, so the reader sees the new goods, then the carried-forward balances.
-  const itemized = sales.filter((s) => !owingOnlyIds.includes(s.id));
-  const collapsed = sales.filter((s) => owingOnlyIds.includes(s.id));
 
   const items: InvoiceItemRow[] = [];
   itemized.forEach((sale) => {
@@ -142,30 +137,23 @@ export function resolveCombinedInvoiceData(
       }),
     );
   });
-  if (collapsed.length > 0) {
-    items.push({ heading: "បុងចាស់", name: "", qty: "", rate: "", amount: "", free: false });
-    collapsed.forEach((sale) => {
-      const bal = Number(sale.total) - Number(sale.amount_paid);
-      items.push({
-        name: `${sale.invoice_number}  ·  ${dayjs(sale.created_at).format("YYYY-MM-DD")}`,
-        qty: "", rate: "", amount: money(bal), free: false,
-      });
-    });
-  }
 
+  // Header reflects what is actually printed: the itemized invoices (the carried
+  // ones live in the previous-owing line, not on this paper).
+  const shown = itemized.length > 0 ? itemized : sales;
   const first = sales[0];
-  const last = sales[sales.length - 1];
-  const d0 = dayjs(first.created_at);
-  const d1 = dayjs(last.created_at);
+  const d0 = dayjs(shown[0].created_at);
+  const d1 = dayjs(shown[shown.length - 1].created_at);
   const dateRange = d0.isSame(d1, "day")
     ? d0.format("YYYY-MM-DD")
     : `${d0.format("YYYY-MM-DD")} – ${d1.format("YYYY-MM-DD")}`;
+  const invoiceLabel = itemized.length === 1 ? itemized[0].invoice_number : `${itemized.length} invoices`;
 
   const fields: Record<string, string> = {
     business_name: settings?.business_name || "Chomnenh",
     business_address: settings?.address || "",
     business_phone: settings?.phone || "",
-    invoice_number: `${sales.length} invoices`,
+    invoice_number: invoiceLabel,
     issue_date: dateRange,
     due_date: dateRange,
     client_name: first.client_name || "Walk-in customer",
@@ -194,8 +182,7 @@ export function resolveCombinedInvoiceData(
       previousOwing: money(prevOwing),
       grandTotal: money(grandTotal),
       hasOwing: prevOwing > 0,
-      invoiceEmpty: false,
-      owingSummary: collapsed.length > 0,
+      invoiceEmpty: itemized.length === 0,
     },
     logoUrl: settings?.logo_url ?? null,
     khqrUrl: settings?.khqr_url ?? null,
@@ -216,7 +203,7 @@ export function sampleInvoiceData(settings: Settings | null): InvoiceData {
       { name: "Mecira ស្ក្រាប់កាហ្វេ", qty: "1000 កំប៉ុង", rate: "$5.30", amount: "$5,300.00", free: false },
       { name: "Lucaci Sun Cream", qty: "1000 ដប", rate: "$2.90", amount: "$2,900.00", free: false },
     ],
-    totals: { subtotal: "13,288.00", total: "$13,288.00", paid: "$0.00", balance: "$13,288.00", khr: "≈ 54,480,800 ៛", previousOwing: "$0.00", grandTotal: "$13,288.00", hasOwing: false, invoiceEmpty: false, owingSummary: false },
+    totals: { subtotal: "13,288.00", total: "$13,288.00", paid: "$0.00", balance: "$13,288.00", khr: "≈ 54,480,800 ៛", previousOwing: "$0.00", grandTotal: "$13,288.00", hasOwing: false, invoiceEmpty: false },
     logoUrl: settings?.logo_url ?? null,
     khqrUrl: settings?.khqr_url ?? null,
   };

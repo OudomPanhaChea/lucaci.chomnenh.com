@@ -17,7 +17,8 @@ const isSelectable = (s: Sale) => s.status !== "voided";
 // ticked (or all at once) to print them as invoice-canvas papers
 // (onCreatePaper(ids, owingOnlyIds)). When 2+ are ticked they merge into one
 // combined invoice; each can be flagged "owing only" so an already-sent invoice
-// shows just its balance instead of re-listing its items. With nothing ticked, a
+// is left off the item list entirely and its balance is summed into the previous
+// owing line instead. With nothing ticked, a
 // client carrying previous owing can still print an owing-only statement
 // (onCreatePaper([])).
 export default function PurchaseHistory({
@@ -38,7 +39,8 @@ export default function PurchaseHistory({
   onCreatePaper: (saleIds: number[], owingOnlyIds?: number[]) => void;
 }) {
   const [sel, setSel] = useState<number[]>([]);
-  // Ticked invoices flagged to print as a balance line only (subset of sel).
+  // Ticked invoices flagged to be carried into previous owing instead of printed
+  // (subset of sel).
   const [owingOnly, setOwingOnly] = useState<number[]>([]);
   const selectable = useMemo(() => sales.filter(isSelectable), [sales]);
 
@@ -76,8 +78,6 @@ export default function PurchaseHistory({
   const selected = selectable.filter((s) => sel.includes(s.id));
   const selOwing = selected.reduce((sum, s) => sum + balanceOf(s), 0);
   const allChecked = selectable.length > 0 && sel.length === selectable.length;
-  // How many of the currently selected invoices will print as a balance line only.
-  const balanceOnlyCount = owingOnly.filter((id) => sel.includes(id)).length;
 
   return (
     <div>
@@ -105,12 +105,6 @@ export default function PurchaseHistory({
                       {money(selOwing)} owing
                     </span>
                   </>
-                )}
-                {balanceOnlyCount > 0 && (
-                  <span className="font-normal text-fg-muted">
-                    {" · "}
-                    {balanceOnlyCount} balance only
-                  </span>
                 )}
               </span>
               <Button
@@ -215,9 +209,9 @@ export default function PurchaseHistory({
                 )}
                 <ChevronRight className="h-4 w-4 shrink-0 text-fg-subtle transition-colors duration-150 group-hover:text-fg" />
               </div>
-              {/* Revealed when combining 2+ invoices: tick to carry THIS invoice
-                  forward as a balance line only (an already-sent invoice: keep the
-                  debt, skip re-listing its items). */}
+              {/* Revealed when combining 2+ invoices: tick to keep THIS invoice off
+                  the paper entirely (an already-sent invoice) and add its balance to
+                  the previous-owing total instead. */}
               {sel.includes(s.id) && sel.length > 1 && (
                 <div
                   onClick={(e) => e.stopPropagation()}

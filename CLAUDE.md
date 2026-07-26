@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-25 (per-invoice "Owing only" collapse in the combined invoice paper)
+> Last updated: 2026-07-26 (បុងចាស់ invoices are dropped from the item list and summed into previous owing)
 
 ## 1. What this project is
 
@@ -1415,6 +1415,32 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   $65 under the Previously-billed section at the bottom, itemized invoice still full, totals
   reduce to Amount Owing $122 / Previous Owing $500 / Total Owing $622 (unchanged), sheets
   A4 794x1123, ordering itemized-before-collapsed. Screenshots eyeballed. `next build` passes.
+
+### Done (2026-07-26): បុងចាស់ invoices leave the item list and become previous owing
+- Refines the 2026-07-25 collapse: a បុងចាស់-ticked invoice is now **not printed at
+  all** (no balance line, no "Previously billed" section) and its outstanding balance
+  is summed into **Previous Owing** together with the client's `opening_owing`. The
+  owner already handed that invoice to the client; the new paper only needs to carry
+  the debt forward. The grand total is identical either way.
+- `resolveCombinedInvoiceData` now computes subtotal/total/paid from the ITEMIZED
+  invoices only (so the printed amounts foot to the Subtotal again) and
+  `prevOwing = oldOwing + Σ carried balances`. Because the item list is honest again,
+  the `totals.owingSummary` flag was REMOVED: a mixed paper renders the normal
+  Subtotal / Paid / Total / Previous Owing / Grand Total block; only the
+  nothing-itemized case (owing-only statement, or every invoice carried) still takes
+  the `hasOwing && invoiceEmpty` branch (Amount Owing / Previous Owing / Total Owing),
+  and `invoiceEmpty` is now `itemized.length === 0` for combined papers.
+- Header follows what is printed: `invoice_number` is the real number when exactly one
+  invoice is itemized (was always "N invoices"), and the issue/due date range spans the
+  itemized invoices. Selection-bar hint reads "N as previous owing".
+- The modal's "Include $X previous owing" checkbox still toggles ONLY the client's
+  opening owing; carried invoice balances are always included (the user picked them).
+- E2E verified headless per the verify skill (scratchpad `verify-carry-owing.js`,
+  20/20) against client 10 (INV-…0002 $57 + INV-…0003 $65, opening owing $500): both
+  itemized → Subtotal $122 / Previous Owing $500 / Grand Total $622; mark …0002
+  បុងចាស់ → its number and items vanish from the sheet, Subtotal $65, Previous Owing
+  $557, Grand Total still $622, one 794x1123 sheet; mark both → nothing itemized,
+  Total Owing $622. Screenshots eyeballed. `next build` passes.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;

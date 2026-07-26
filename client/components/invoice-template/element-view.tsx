@@ -162,11 +162,10 @@ function TotalsBlock({ el, data }: { el: TemplateElement; data: InvoiceData }) {
   const invoiceLabel = hasPaid ? (L.balance ?? DEFAULT_TOTALS_LABELS.balance) : (L.total ?? DEFAULT_TOTALS_LABELS.total);
   const invoiceValue = hasPaid ? data.totals.balance : data.totals.total;
 
-  // Owing summary: an owing-only statement (no line items), OR a combined invoice
-  // where some invoices are collapsed to a balance line. The item amounts no
-  // longer foot to a "Total", so drop the subtotal/paid breakdown and show only
-  // what is owed.
-  if (data.totals.owingSummary || (hasOwing && data.totals.invoiceEmpty)) {
+  // Owing summary: nothing is itemized (an owing-only statement, or a combined
+  // paper whose invoices are all carried forward). There is no subtotal/paid
+  // breakdown to print, so show only what is owed.
+  if (hasOwing && data.totals.invoiceEmpty) {
     const showBalance = hasOwing && data.totals.balance !== "$0.00";
     return (
       <div style={{ width: "100%", color: el.color ?? "#142332" }}>
