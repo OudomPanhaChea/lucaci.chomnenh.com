@@ -8,8 +8,9 @@ import { money } from "@/lib/format";
 import type { Client, PaymentMethod } from "@/lib/types";
 
 // Old owing: debt the client carried from before this system, entered as a
-// plain amount (no items, no invoice). mode "add" records more of it
-// (manager-only route); mode "pay" receives money against what remains.
+// plain amount (no items, no invoice). mode "add" records more of it, mode
+// "pay" receives money against what remains. Any role may do either; managers
+// can additionally correct or delete the resulting ledger row.
 export default function OwingModal({
   client, mode, onClose, onDone,
 }: {

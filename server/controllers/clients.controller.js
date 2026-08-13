@@ -233,8 +233,9 @@ export async function addDeposit(req, res) {
 const money2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
 // Old owing: debt from before this system, entered as a plain amount with no
-// items or invoice (manager-gated in routes). The ledger row records WHO added
-// it and when; its amount is a debt, not money moving.
+// items or invoice. Any role may record it (a cashier taking over a debt at
+// the counter still needs it); the ledger row records WHO added it and when.
+// Its amount is a debt, not money moving.
 export async function addOpeningOwing(req, res) {
   const { amount, note = null } = req.body || {};
   const amt = money2(amount);
@@ -314,6 +315,149 @@ export async function payOpeningOwing(req, res) {
     await conn.commit();
     emitToAdmins("client:changed", { type: "update", id: client.id });
     res.status(201).json({ message: "Payment recorded", opening_owing });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Editing standalone ledger rows (manager-gated in routes) ────────────────
+// Only the three rows that belong to the CLIENT can be corrected here:
+// a deposit, recorded old owing, and a payment against that owing. `sale` and
+// `refund` rows belong to an invoice (they drive sales.amount_paid/status and
+// are mirrored on void), so they are never edited from the client ledger, they
+// are corrected by voiding the sale.
+//
+// Each row moves exactly one client column in one direction; re-applying the
+// difference (or the whole amount, on delete) keeps the balance exact.
+const LEDGER_EFFECT = {
+  deposit:   { column: "credit_balance", sign: 1,  label: "Deposit" },
+  owing_add: { column: "opening_owing",  sign: 1,  label: "Owing recorded" },
+  owing_pay: { column: "opening_owing",  sign: -1, label: "Owing payment" },
+};
+const NEGATIVE_MESSAGE = {
+  credit_balance: "That would make the prepaid balance negative: some of it has already been spent",
+  opening_owing:  "That would make the previous owing negative",
+};
+
+// Loads the ledger row locked together with its client, and rejects anything
+// that is not an editable standalone row of THIS client.
+async function lockEditableLedgerRow(conn, clientId, paymentId) {
+  const [[client]] = await conn.query(
+    "SELECT id, credit_balance, opening_owing FROM clients WHERE id = ? AND business_id = ? FOR UPDATE",
+    [clientId, BUSINESS_ID]
+  );
+  if (!client) return { error: { status: 404, message: "Client not found" } };
+  const [[payment]] = await conn.query(
+    "SELECT * FROM payments WHERE id = ? AND client_id = ? AND business_id = ? FOR UPDATE",
+    [paymentId, client.id, BUSINESS_ID]
+  );
+  if (!payment) return { error: { status: 404, message: "Ledger entry not found" } };
+  const effect = LEDGER_EFFECT[payment.type];
+  if (!effect) {
+    return {
+      error: {
+        status: 400,
+        message: "Invoice payments cannot be edited here, void the invoice instead",
+      },
+    };
+  }
+  return { client, payment, effect };
+}
+
+// Applies a signed change to one client balance column, refusing to drive it
+// below zero (the amount was already spent / already paid off).
+async function applyLedgerDelta(conn, client, effect, delta) {
+  if (delta === 0) return { ok: true };
+  const current = Number(client[effect.column]);
+  const next = money2(current + delta);
+  if (next < 0) return { ok: false, message: NEGATIVE_MESSAGE[effect.column] };
+  await conn.query(
+    `UPDATE clients SET ${effect.column} = ? WHERE id = ?`, [next, client.id]
+  );
+  return { ok: true };
+}
+
+export async function updateClientPayment(req, res) {
+  const { amount, method, note } = req.body || {};
+  const amt = money2(amount);
+  if (!(amt > 0)) return res.status(400).json({ message: "Amount must be greater than zero" });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { error, client, payment, effect } = await lockEditableLedgerRow(
+      conn, req.params.id, req.params.paymentId
+    );
+    if (error) {
+      await conn.rollback();
+      return res.status(error.status).json({ message: error.message });
+    }
+
+    // owing_add is a debt, not money: it has no real payment method.
+    let nextMethod = payment.method;
+    if (payment.type !== "owing_add" && method !== undefined) {
+      if (!["cash", "khqr", "card", "bank", "other"].includes(method)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Invalid payment method" });
+      }
+      nextMethod = method;
+    }
+
+    const delta = effect.sign * (amt - Number(payment.amount));
+    const applied = await applyLedgerDelta(conn, client, effect, delta);
+    if (!applied.ok) {
+      await conn.rollback();
+      return res.status(400).json({ message: applied.message });
+    }
+    await conn.query(
+      "UPDATE payments SET amount = ?, method = ?, note = ? WHERE id = ?",
+      [amt, nextMethod, note?.trim() || null, payment.id]
+    );
+
+    const [[balances]] = await conn.query(
+      "SELECT credit_balance, opening_owing FROM clients WHERE id = ?", [client.id]
+    );
+    await conn.commit();
+    emitToAdmins("client:changed", { type: "update", id: client.id });
+    res.json({ message: `${effect.label} updated`, ...balances });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+export async function deleteClientPayment(req, res) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { error, client, payment, effect } = await lockEditableLedgerRow(
+      conn, req.params.id, req.params.paymentId
+    );
+    if (error) {
+      await conn.rollback();
+      return res.status(error.status).json({ message: error.message });
+    }
+
+    const applied = await applyLedgerDelta(
+      conn, client, effect, -effect.sign * Number(payment.amount)
+    );
+    if (!applied.ok) {
+      await conn.rollback();
+      return res.status(400).json({ message: applied.message });
+    }
+    await conn.query("DELETE FROM payments WHERE id = ?", [payment.id]);
+
+    const [[balances]] = await conn.query(
+      "SELECT credit_balance, opening_owing FROM clients WHERE id = ?", [client.id]
+    );
+    await conn.commit();
+    emitToAdmins("client:changed", { type: "update", id: client.id });
+    res.json({ message: `${effect.label} deleted`, ...balances });
   } catch (err) {
     await conn.rollback();
     throw err;

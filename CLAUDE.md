@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-07-26 (បុងចាស់ invoices are dropped from the item list and summed into previous owing)
+> Last updated: 2026-08-13 (cashiers can record owing; managers can edit/delete deposit and owing ledger rows)
 
 ## 1. What this project is
 
@@ -1441,6 +1441,42 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   បុងចាស់ → its number and items vanish from the sheet, Subtotal $65, Previous Owing
   $557, Grand Total still $622, one 794x1123 sheet; mark both → nothing itemized,
   Total Owing $622. Screenshots eyeballed. `next build` passes.
+
+### Done (2026-08-13): cashiers record owing + managers correct ledger entries
+- `POST /clients/:id/owing` lost its `manager` gate: **any role can record previous
+  owing** now (a cashier taking a debt over at the counter needed it). Receiving owing
+  and deposits were already open to all roles, and the client details page never gated
+  the buttons (the owner had commented the `isManager &&` out), so only the route
+  changed. Reverses the 2026-07-20 "manager only, owner's choice" decision at the
+  owner's request.
+- **Standalone ledger rows are editable/deletable by managers**:
+  `PUT/DELETE /clients/:id/payments/:paymentId` (manager-gated, since both rewrite a
+  client balance). Only `deposit`, `owing_add`, `owing_pay` qualify — the three rows
+  that belong to the CLIENT and carry `sale_id NULL`. `sale`/`refund` rows drive
+  `sales.amount_paid`/status and are mirrored on void, so they are refused with 400
+  ("void the invoice instead"); the UI hides the buttons on them too.
+- Balance math in `clients.controller.js`: `LEDGER_EFFECT` maps each type to the one
+  column it moves and its direction (`deposit` +credit_balance, `owing_add`
+  +opening_owing, `owing_pay` −opening_owing); an edit re-applies only the DIFFERENCE,
+  a delete reverses the whole amount, both inside one transaction with the client row
+  and the payment row locked `FOR UPDATE`. A change that would drive the column
+  negative is refused with a plain explanation (prepaid already spent / owing already
+  paid off), so a correction can never invent money. `owing_add` keeps method `other`
+  (it is debt, not money), so its edit modal hides the method picker.
+- UI: `components/clients/ledger-edit-modal.tsx` (amount + method + note, prefilled)
+  and per-row Pencil/Trash2 buttons in `payments-list.tsx` (Popconfirm on delete,
+  always visible for touch, `stopPropagation` so they don't open the invoice modal).
+  `PaymentsList` gained `clientId` / `canManage` / `onChanged`; the page passes
+  `isManager` + `load`.
+- Verified: curl-style API suite 31/31 (scratchpad `smoke-ledger.mjs` — deposit
+  create/edit/delete with balances re-checked each step, cashier CAN add owing and
+  receive it, cashier gets 403 on edit/delete, over-payment edit refused and balance
+  unchanged, invoice payment refused, cross-client row 404s, balances fully restored)
+  and headless UI 16/16 (scratchpad `verify-ledger-ui.js` — buttons only on the three
+  editable types, edit modal prefilled, edit 50→20 moves the prepaid card, delete
+  reverses owing, cashier sees Add owing work and gets NO action buttons). `next build`
+  passes. **antd 6 gotcha: the modal root is `.ant-modal`, not `.ant-modal-content`**
+  (waiting on the old selector times out even though the modal is open).
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
