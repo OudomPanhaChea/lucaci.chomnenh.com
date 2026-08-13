@@ -77,8 +77,12 @@ router.delete("/products/:id", manager, products.deleteProduct);
 router.get("/clients", clients.listClients);
 router.get("/clients/:id/statement", clients.clientStatement);
 router.post("/clients/:id/deposits", clients.addDeposit);
-router.post("/clients/:id/owing", manager, clients.addOpeningOwing);
+router.post("/clients/:id/owing", clients.addOpeningOwing);
 router.post("/clients/:id/owing-payments", clients.payOpeningOwing);
+// Correcting a deposit / recorded owing / owing payment rewrites the client's
+// balance, so it stays manager-only (invoice payments are not editable here).
+router.put("/clients/:id/payments/:paymentId", manager, clients.updateClientPayment);
+router.delete("/clients/:id/payments/:paymentId", manager, clients.deleteClientPayment);
 router.post("/clients", clients.createClient);
 router.put("/clients/:id", clients.updateClient);
 router.delete("/clients/:id", manager, clients.deleteClient);
