@@ -389,7 +389,10 @@ export default function ClientDetailsPage() {
                   <PaymentsList
                     payments={statement.payments}
                     loading={stmtLoading}
+                    clientId={clientId}
+                    canManage={isManager}
                     onOpenInvoice={setDetailId}
+                    onChanged={load}
                   />
                 ),
               },
