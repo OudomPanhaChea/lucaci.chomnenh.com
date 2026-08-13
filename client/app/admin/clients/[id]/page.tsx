@@ -6,7 +6,17 @@ import { DatePicker, Tabs, Tag } from "antd";
 import { Button } from "@/components/ui/button";
 import dayjs, { Dayjs } from "dayjs";
 import {
-  ArrowLeft, BookPlus, CircleAlert, HandCoins, IdCard, Mail, MapPin, Pencil, Phone, StickyNote, Wallet,
+  ArrowLeft,
+  BookPlus,
+  CircleAlert,
+  HandCoins,
+  IdCard,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+  StickyNote,
+  Wallet,
 } from "lucide-react";
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
@@ -75,17 +85,34 @@ export default function ClientDetailsPage() {
       });
   }, [clientId, range]);
   useEffect(load, [load]);
-  useRealtime(["client:changed", "sale:created", "sale:updated", "sale:voided", "bonus:changed"], load);
+  useRealtime(
+    [
+      "client:changed",
+      "sale:created",
+      "sale:updated",
+      "sale:voided",
+      "bonus:changed",
+    ],
+    load,
+  );
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner />
+      </div>
+    );
   }
   if (!statement) {
     return (
       <EmptyState
         icon={CircleAlert}
         title="Client not found"
-        action={<Link href="/admin/clients"><Button>Back to clients</Button></Link>}
+        action={
+          <Link href="/admin/clients">
+            <Button>Back to clients</Button>
+          </Link>
+        }
       />
     );
   }
@@ -112,20 +139,33 @@ export default function ClientDetailsPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* {cl.client_type === "partner" && <Tag color="blue" className="m-0!">Partner</Tag>} */}
-            <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setEditOpen(true)}>
+            <Button
+              icon={<Pencil className="h-4 w-4" />}
+              onClick={() => setEditOpen(true)}
+            >
               Edit
             </Button>
-            {isManager && (
-              <Button icon={<BookPlus className="h-4 w-4" />} onClick={() => setOwingMode("add")}>
-                Add owing
-              </Button>
-            )}
+            {/* {isManager && ( */}
+            <Button
+              icon={<BookPlus className="h-4 w-4" />}
+              onClick={() => setOwingMode("add")}
+            >
+              Add owing
+            </Button>
+            {/* )} */}
             {oldOwing > 0 && (
-              <Button icon={<HandCoins className="h-4 w-4" />} onClick={() => setOwingMode("pay")}>
+              <Button
+                icon={<HandCoins className="h-4 w-4" />}
+                onClick={() => setOwingMode("pay")}
+              >
                 Receive owing
               </Button>
             )}
-            <Button type="primary" icon={<Wallet className="h-4 w-4" />} onClick={() => setDepositOpen(true)}>
+            <Button
+              type="primary"
+              icon={<Wallet className="h-4 w-4" />}
+              onClick={() => setDepositOpen(true)}
+            >
               Add deposit
             </Button>
           </div>
@@ -140,19 +180,25 @@ export default function ClientDetailsPage() {
         <aside className="space-y-4 xl:sticky xl:top-20">
           {/* Account position (all time) */}
           <div className="grid grid-cols-2 gap-3">
-            <div className={`rounded-lg border p-3 ${
-              owingAll > 0
-                ? "border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10"
-                : "border-line bg-surface-raised"
-            }`}>
+            <div
+              className={`rounded-lg border p-3 ${
+                owingAll > 0
+                  ? "border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10"
+                  : "border-line bg-surface-raised"
+              }`}
+            >
               <p className="text-xs text-fg-subtle">Owing (all time)</p>
-              <p className={`tabular text-xl font-semibold ${
-                owingAll > 0 ? "text-rose-600 dark:text-rose-400" : "text-fg"
-              }`}>
+              <p
+                className={`tabular text-xl font-semibold ${
+                  owingAll > 0 ? "text-rose-600 dark:text-rose-400" : "text-fg"
+                }`}
+              >
                 {money(owingAll)}
               </p>
               {owingAll === 0 && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">Fully paid</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                  Fully paid
+                </p>
               )}
               {oldOwing > 0 && (
                 <>
@@ -171,15 +217,21 @@ export default function ClientDetailsPage() {
                 </>
               )}
             </div>
-            <div className={`rounded-lg border p-3 ${
-              prepaid > 0
-                ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"
-                : "border-line bg-surface-raised"
-            }`}>
+            <div
+              className={`rounded-lg border p-3 ${
+                prepaid > 0
+                  ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"
+                  : "border-line bg-surface-raised"
+              }`}
+            >
               <p className="text-xs text-fg-subtle">Prepaid balance</p>
-              <p className={`tabular text-xl font-semibold ${
-                prepaid > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-fg"
-              }`}>
+              <p
+                className={`tabular text-xl font-semibold ${
+                  prepaid > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-fg"
+                }`}
+              >
                 {money(prepaid)}
               </p>
             </div>
@@ -190,17 +242,39 @@ export default function ClientDetailsPage() {
               <ClientAvatar client={cl} size="lg" />
               <div className="min-w-0">
                 <p className="truncate font-semibold text-fg">{cl.name}</p>
-                <p className="text-xs text-fg-subtle">Client #{cl.display_number}</p>
+                <p className="text-xs text-fg-subtle">
+                  Client #{cl.display_number}
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 rounded-xl bg-surface-sunken/50 p-3.5 text-sm sm:grid-cols-2 xl:grid-cols-1">
-              <ContactItem icon={<Phone className="h-4 w-4" />} label="Phone" value={cl.phone} />
-              <ContactItem icon={<Mail className="h-4 w-4" />} label="Email" value={cl.email} />
-              <ContactItem icon={<IdCard className="h-4 w-4" />} label="ID card" value={cl.id_card} />
-              <ContactItem icon={<MapPin className="h-4 w-4" />} label="Address" value={cl.address} />
+              <ContactItem
+                icon={<Phone className="h-4 w-4" />}
+                label="Phone"
+                value={cl.phone}
+              />
+              <ContactItem
+                icon={<Mail className="h-4 w-4" />}
+                label="Email"
+                value={cl.email}
+              />
+              <ContactItem
+                icon={<IdCard className="h-4 w-4" />}
+                label="ID card"
+                value={cl.id_card}
+              />
+              <ContactItem
+                icon={<MapPin className="h-4 w-4" />}
+                label="Address"
+                value={cl.address}
+              />
               {cl.note && (
                 <div className="sm:col-span-2 xl:col-span-1">
-                  <ContactItem icon={<StickyNote className="h-4 w-4" />} label="Note" value={cl.note} />
+                  <ContactItem
+                    icon={<StickyNote className="h-4 w-4" />}
+                    label="Note"
+                    value={cl.note}
+                  />
                 </div>
               )}
             </div>
@@ -215,36 +289,59 @@ export default function ClientDetailsPage() {
               onChange={(v) => setRange(v as [Dayjs, Dayjs] | null)}
               presets={[
                 { label: "Today", value: [dayjs(), dayjs()] },
-                { label: "This week", value: [dayjs().startOf("week"), dayjs()] },
-                { label: "This month", value: [dayjs().startOf("month"), dayjs()] },
-                { label: "This year", value: [dayjs().startOf("year"), dayjs()] },
+                {
+                  label: "This week",
+                  value: [dayjs().startOf("week"), dayjs()],
+                },
+                {
+                  label: "This month",
+                  value: [dayjs().startOf("month"), dayjs()],
+                },
+                {
+                  label: "This year",
+                  value: [dayjs().startOf("year"), dayjs()],
+                },
               ]}
             />
-            <span className="text-xs text-fg-subtle">{range ? "Selected period" : "All time"}</span>
+            <span className="text-xs text-fg-subtle">
+              {range ? "Selected period" : "All time"}
+            </span>
           </div>
 
           <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-surface-sunken/50 p-3 text-center text-sm sm:grid-cols-5">
             <div>
               <p className="text-xs text-fg-subtle">Invoices</p>
-              <p className="tabular font-semibold text-fg">{num(statement.period.invoice_count)}</p>
+              <p className="tabular font-semibold text-fg">
+                {num(statement.period.invoice_count)}
+              </p>
             </div>
             <div>
               <p className="text-xs text-fg-subtle">Total Items</p>
-              <p className="tabular font-semibold text-fg">{num(statement.period.total_items)}</p>
+              <p className="tabular font-semibold text-fg">
+                {num(statement.period.total_items)}
+              </p>
             </div>
             <div>
               <p className="text-xs text-fg-subtle">Purchased</p>
-              <p className="tabular font-semibold text-fg">{money(statement.period.purchased)}</p>
+              <p className="tabular font-semibold text-fg">
+                {money(statement.period.purchased)}
+              </p>
             </div>
             <div>
               <p className="text-xs text-fg-subtle">Paid</p>
-              <p className="tabular font-semibold text-emerald-600 dark:text-emerald-400">{money(statement.period.paid)}</p>
+              <p className="tabular font-semibold text-emerald-600 dark:text-emerald-400">
+                {money(statement.period.paid)}
+              </p>
             </div>
             <div>
               <p className="text-xs text-fg-subtle">Owing</p>
-              <p className={`tabular font-semibold ${
-                statement.period.outstanding > 0 ? "text-rose-600 dark:text-rose-400" : "text-fg"
-              }`}>
+              <p
+                className={`tabular font-semibold ${
+                  statement.period.outstanding > 0
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-fg"
+                }`}
+              >
                 {money(statement.period.outstanding)}
               </p>
             </div>
@@ -264,7 +361,9 @@ export default function ClientDetailsPage() {
                     hasRange={!!range}
                     canPaperAlone={oldOwing > 0}
                     onOpenInvoice={setDetailId}
-                    onPay={(s) => setPaySale({ ...s, client_id: clientId } as Sale)}
+                    onPay={(s) =>
+                      setPaySale({ ...s, client_id: clientId } as Sale)
+                    }
                     onCreatePaper={(ids, owingOnly) => {
                       setOwingOnlyIds(owingOnly ?? []);
                       setInvoiceIds(ids);
@@ -276,31 +375,43 @@ export default function ClientDetailsPage() {
                 key: "products",
                 label: `Products (${num(statement.products.length)})`,
                 children: (
-                  <ProductsRank products={statement.products} loading={stmtLoading} hasRange={!!range} />
+                  <ProductsRank
+                    products={statement.products}
+                    loading={stmtLoading}
+                    hasRange={!!range}
+                  />
                 ),
               },
               {
                 key: "payments",
                 label: `Payments and deposits (${num(statement.payments.length)})`,
                 children: (
-                  <PaymentsList payments={statement.payments} loading={stmtLoading} onOpenInvoice={setDetailId} />
+                  <PaymentsList
+                    payments={statement.payments}
+                    loading={stmtLoading}
+                    onOpenInvoice={setDetailId}
+                  />
                 ),
               },
               // Manager-only (the server omits bonuses for cashiers); shown
               // for partners, or any client that already has past awards.
-              ...(isManager && (cl.client_type === "partner" || (statement.bonuses?.length ?? 0) > 0)
-                ? [{
-                    key: "bonuses",
-                    label: `Bonuses (${num(statement.bonuses?.length ?? 0)})`,
-                    children: (
-                      <BonusesList
-                        bonuses={statement.bonuses ?? []}
-                        loading={stmtLoading}
-                        hasRange={!!range}
-                        onPaper={setPaperBonus}
-                      />
-                    ),
-                  }]
+              ...(isManager &&
+              (cl.client_type === "partner" ||
+                (statement.bonuses?.length ?? 0) > 0)
+                ? [
+                    {
+                      key: "bonuses",
+                      label: `Bonuses (${num(statement.bonuses?.length ?? 0)})`,
+                      children: (
+                        <BonusesList
+                          bonuses={statement.bonuses ?? []}
+                          loading={stmtLoading}
+                          hasRange={!!range}
+                          onPaper={setPaperBonus}
+                        />
+                      ),
+                    },
+                  ]
                 : []),
             ]}
           />
@@ -327,7 +438,11 @@ export default function ClientDetailsPage() {
         onDone={load}
       />
 
-      <ReceivePaymentModal sale={paySale} onClose={() => setPaySale(null)} onDone={load} />
+      <ReceivePaymentModal
+        sale={paySale}
+        onClose={() => setPaySale(null)}
+        onDone={load}
+      />
 
       {/* Close the invoice modal before opening the paper, or it stays
           stacked on top of the invoice preview. A single invoice prints as a
@@ -361,7 +476,9 @@ export default function ClientDetailsPage() {
 }
 
 function ContactItem({
-  icon, label, value,
+  icon,
+  label,
+  value,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -372,7 +489,9 @@ function ContactItem({
       <span className="mt-0.5 text-fg-subtle">{icon}</span>
       <div className="min-w-0">
         <p className="text-xs text-fg-subtle">{label}</p>
-        <p className={value ? "text-fg" : "text-fg-subtle"}>{value || "Not set"}</p>
+        <p className={value ? "text-fg" : "text-fg-subtle"}>
+          {value || "Not set"}
+        </p>
       </div>
     </div>
   );
