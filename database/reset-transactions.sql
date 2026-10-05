@@ -56,7 +56,7 @@ JOIN (
   SELECT product_id, SUM(change_qty) AS net_taken
   FROM stock_movements
   WHERE business_id = @business_id
-    AND reason IN ('sale', 'void')
+    AND reason IN ('sale', 'void', 'edit')
   GROUP BY product_id
 ) m ON m.product_id = p.id
 SET p.stock_qty = p.stock_qty - m.net_taken
@@ -68,7 +68,7 @@ WHERE p.business_id = @business_id
 -- explaining the stock_qty left behind.
 DELETE FROM stock_movements
 WHERE business_id = @business_id
-  AND reason IN ('sale', 'void');
+  AND reason IN ('sale', 'void', 'edit');
 
 -- Step 3: bonus awards (bonus_items cascades from bonuses).
 DELETE FROM bonuses WHERE business_id = @business_id;
@@ -112,7 +112,7 @@ UNION ALL SELECT 'payments',    COUNT(*) FROM payments    WHERE business_id = @b
 UNION ALL SELECT 'bonuses',     COUNT(*) FROM bonuses     WHERE business_id = @business_id
 UNION ALL SELECT 'bonus_items', COUNT(*) FROM bonus_items WHERE business_id = @business_id
 UNION ALL SELECT 'sale/void movements', COUNT(*) FROM stock_movements
-  WHERE business_id = @business_id AND reason IN ('sale', 'void')
+  WHERE business_id = @business_id AND reason IN ('sale', 'void', 'edit')
 UNION ALL SELECT 'clients with credit', COUNT(*) FROM clients
   WHERE business_id = @business_id AND credit_balance <> 0.00;
 

@@ -1,6 +1,7 @@
 import pool from "../config/db.js";
 import { BUSINESS_ID } from "../config/business.js";
 import { emitToAdmins } from "../config/socket.js";
+import { storeUploadedImage } from "../middleware/upload.js";
 
 // Freeform invoice templates. `elements` is a JSON array of layout blocks; we
 // store it as text and parse on the way out so the client always gets an array.
@@ -124,4 +125,20 @@ export async function deleteTemplate(req, res) {
   } finally {
     conn.release();
   }
+}
+
+// A `photo` element (a scanned signature, a stamp) carries its own image rather
+// than one of the business images from Settings. The upload is stored like every
+// other image and the returned URL goes into the element, so the picture travels
+// with the template JSON and survives a redeploy.
+//
+// Nothing is deleted here on purpose. A template is edited as one JSON blob that
+// can be undone, cancelled, or saved on top of an older version, so this route
+// cannot tell "replaced" from "still referenced by the copy the user has not
+// saved yet"; deleting eagerly would blank a signature on a live invoice. The
+// cost of an unreferenced row is a few KB.
+export async function uploadTemplateImage(req, res) {
+  if (!req.file) return res.status(400).json({ message: "No image uploaded" });
+  const url = await storeUploadedImage(req.file);
+  res.status(201).json({ url });
 }

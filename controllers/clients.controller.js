@@ -21,7 +21,8 @@ export async function listClients(req, res) {
             COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.amount_paid END), 0) AS total_spent,
             COALESCE(SUM(CASE WHEN s.status <> 'voided' THEN s.total - s.amount_paid END), 0) + c.opening_owing AS outstanding,
             MAX(s.created_at)                                        AS last_purchase_at,
-            (SELECT COALESCE(SUM(si.quantity), 0)
+            -- items = different products bought, never summed quantities
+            (SELECT COUNT(DISTINCT COALESCE(si.product_id, CONCAT('n:', si.name_snapshot)))
                FROM sale_items si JOIN sales s2 ON s2.id = si.sale_id
               WHERE s2.client_id = c.id AND s2.status <> 'voided')   AS total_items
      FROM clients c
@@ -91,7 +92,7 @@ export async function clientStatement(req, res) {
 
   const [sales] = await pool.query(
     `SELECT id, invoice_number, total, amount_paid, payment_method, status, created_at,
-            (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = sales.id) AS item_count
+            (SELECT COUNT(DISTINCT COALESCE(si.product_id, CONCAT('n:', si.name_snapshot))) FROM sale_items si WHERE si.sale_id = sales.id) AS item_count
      FROM sales WHERE client_id = ? AND business_id = ?${rangeSql}
      ORDER BY id DESC LIMIT 200`,
     [id, BUSINESS_ID, ...rangeParams]
@@ -141,7 +142,7 @@ export async function clientStatement(req, res) {
     [id, BUSINESS_ID, ...rangeParams]
   );
   const [[{ total_items }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity), 0) AS total_items
+    `SELECT COUNT(DISTINCT COALESCE(si.product_id, CONCAT('n:', si.name_snapshot))) AS total_items
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
      WHERE s.client_id = ? AND s.business_id = ? AND s.status <> 'voided'${itemsRangeSql}`,
     [id, BUSINESS_ID, ...rangeParams]
