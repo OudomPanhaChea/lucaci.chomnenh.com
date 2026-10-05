@@ -3,6 +3,7 @@ import { Dropdown, Tooltip } from "antd";
 import { ArrowUpDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PRODUCT_SORTS, type ProductSortKey } from "@/lib/product-sort";
+import { useT } from "@/lib/i18n";
 
 // Sort picker for the POS and inventory product lists: an icon button opening
 // the shared sort options, the active one ticked. The parent persists the
@@ -16,6 +17,7 @@ export default function ProductSortMenu({
   onChange: (key: ProductSortKey) => void;
   size?: "large" | "middle";
 }) {
+  const { t } = useT();
   return (
     <Dropdown
       trigger={["click"]}
@@ -24,7 +26,7 @@ export default function ProductSortMenu({
           key: s.key,
           label: (
             <span className="flex min-w-40 items-center justify-between gap-3 py-0.5">
-              {s.label}
+              {t(s.label)}
               {value === s.key && <Check className="h-4 w-4 text-brand" />}
             </span>
           ),
@@ -32,10 +34,10 @@ export default function ProductSortMenu({
         onClick: ({ key }) => onChange(key as ProductSortKey),
       }}
     >
-      <Tooltip title="Sort products">
+      <Tooltip title={t("Sort")}>
         <Button
           size={size}
-          aria-label="Sort products"
+          aria-label={t("Sort")}
           icon={<ArrowUpDown className="h-4 w-4" />}
         />
       </Tooltip>

@@ -4,6 +4,7 @@ import { Modal } from "antd";
 import { useZxing, type BarcodeFormat } from "react-zxing";
 import { CameraOff } from "lucide-react";
 import { playScanBeep, preloadScanSounds } from "@/lib/sound";
+import { useT } from "@/lib/i18n";
 
 // Retail 1D formats plus QR. Fewer formats means less work per frame.
 const FORMATS: BarcodeFormat[] = [
@@ -27,6 +28,7 @@ function CameraRegion({
   onClose: () => void;
   continuous: boolean;
 }) {
+  const { t } = useT();
   const [error, setError] = useState<string | null>(null);
   const [permHint, setPermHint] = useState(false);
   const lastScan = useRef<{ code: string; at: number }>({ code: "", at: 0 });
@@ -68,13 +70,13 @@ function CameraRegion({
     onError(err) {
       const msg = String(err);
       if (/NotAllowedError|Permission/i.test(msg)) {
-        setError("Camera access was denied. Allow camera access for this site and reopen the scanner.");
+        setError(t("Camera blocked. Allow camera access, then try again."));
       } else if (/NotFoundError|NotReadableError|OverconstrainedError|no camera|not found/i.test(msg)) {
-        setError("No usable camera was found on this device.");
+        setError(t("No camera found."));
       } else if (typeof window !== "undefined" && !window.isSecureContext) {
-        setError("Camera scanning needs a secure page. Open the POS over HTTPS (or localhost).");
+        setError(t("Camera needs a secure (HTTPS) page."));
       } else {
-        setError("Could not start the camera. Close other apps using it and try again.");
+        setError(t("Camera could not start."));
       }
     },
   });
@@ -91,15 +93,14 @@ function CameraRegion({
         )}
       </div>
       {error ? (
-        <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+        <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-surface-sunken p-3 text-sm text-fg">
           <CameraOff className="mt-0.5 h-4 w-4 shrink-0" />
           <p>{error}</p>
         </div>
       ) : (
         <p className="mt-3 text-center text-sm text-fg-muted">
-          Point the camera at the product barcode.
-          {permHint &&
-            " When the browser asks for the camera, choose \"Allow on every visit\" (or \"Remember this decision\") so it stops asking each time."}
+          {t("Point the camera at the barcode.")}
+          {permHint && ` ${t("Tip: choose \"Allow on every visit\".")}`}
         </p>
       )}
     </>
@@ -120,8 +121,9 @@ export default function BarcodeScanner({
   onScan: (code: string) => void;
   continuous?: boolean; // keep scanning (POS cart mode) vs close on first hit
 }) {
+  const { t } = useT();
   return (
-    <Modal open={open} onCancel={onClose} footer={null} title="Scan barcode" destroyOnHidden width={420} centered>
+    <Modal open={open} onCancel={onClose} footer={null} title={t("Scan barcode")} destroyOnHidden width={420} centered>
       {open && <CameraRegion onScan={onScan} onClose={onClose} continuous={continuous} />}
     </Modal>
   );

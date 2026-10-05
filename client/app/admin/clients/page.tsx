@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ClientCard } from "@/components/clients/client-card";
 import ClientFormModal from "@/components/clients/client-form-modal";
 import type { Client } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 const PAGE_SIZE = 12;
 
@@ -20,6 +21,7 @@ const PAGE_SIZE = 12;
 // client details page at /admin/clients/[id].
 export default function ClientsPage() {
   const { user } = useAuth();
+  const { t } = useT();
   const canDelete = user?.role === "owner" || user?.role === "admin";
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,7 +91,7 @@ export default function ClientsPage() {
   const remove = async (c: Client) => {
     try {
       await api.delete(`/clients/${c.id}`);
-      toast.success("Client deleted");
+      toast.success(t("Deleted"));
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -99,26 +101,25 @@ export default function ClientsPage() {
   return (
     <div>
       <SectionHeader
-        title="Clients"
-        subtitle={`${clients.length} saved customers`}
+        title={t("Clients")}
         actions={
           <Button type="primary" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-            Add client
+            {t("Add client")}
           </Button>
         }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Input allowClear className="!w-72" placeholder="Search name, phone, email, ID"
+        <Input allowClear className="!w-72" placeholder={t("Search")}
           value={search} onChange={(e) => setSearch(e.target.value)} />
         <Segmented
           value={typeFilter}
           onChange={(v) => setTypeFilter(v as typeof typeFilter)}
           options={[
-            { label: `All (${clients.length})`, value: "all" },
-            { label: `Normal (${clients.length - partnerCount})`, value: "normal" },
-            { label: `Partners (${partnerCount})`, value: "partner" },
-            { label: `Owing (${owingCount})`, value: "owing" },
+            { label: `${t("All")} (${clients.length})`, value: "all" },
+            { label: `${t("Normal")} (${clients.length - partnerCount})`, value: "normal" },
+            { label: `${t("Partner")} (${partnerCount})`, value: "partner" },
+            { label: `${t("Owing")} (${owingCount})`, value: "owing" },
           ]}
         />
       </div>
@@ -128,16 +129,11 @@ export default function ClientsPage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={UsersRound}
-          title={clients.length === 0 ? "No clients yet" : "No clients match your filters"}
-          description={
-            clients.length === 0
-              ? "Save a customer here (or from the POS) to track their purchases and balances."
-              : "Try a different search or filter."
-          }
+          title={clients.length === 0 ? t("No clients yet") : t("No results")}
           action={
             clients.length === 0 ? (
               <Button type="primary" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-                Add client
+                {t("Add client")}
               </Button>
             ) : undefined
           }

@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 
 export function Spinner({ className = "h-5 w-5" }: { className?: string }) {
-  return <Loader2 className={`animate-spin text-fg-subtle ${className}`} aria-label="Loading" />;
+  return <Loader2 className={`animate-spin text-fg-subtle ${className}`} aria-hidden />;
 }
 
 // `hint` is for when the wait stops being a normal load and becomes a wait on

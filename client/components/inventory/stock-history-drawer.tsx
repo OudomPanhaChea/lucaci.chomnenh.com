@@ -4,6 +4,16 @@ import { Drawer } from "antd";
 import api from "@/services/api";
 import { fmtDate, num } from "@/lib/format";
 import type { Product } from "@/lib/types";
+import { useT, type TKey } from "@/lib/i18n";
+
+const REASONS: Record<string, TKey> = {
+  initial: "Starting stock",
+  restock: "Added",
+  adjustment: "Adjusted",
+  sale: "Sold",
+  void: "Voided",
+  edit: "Invoice edited",
+};
 
 interface StockHistoryDrawerProps {
   /** null = closed */
@@ -16,6 +26,7 @@ export function StockHistoryDrawer({
   onClose,
 }: StockHistoryDrawerProps) {
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const { t } = useT();
 
   useEffect(() => {
     if (!product) return;
@@ -30,13 +41,13 @@ export function StockHistoryDrawer({
     <Drawer
       open={!!product}
       onClose={onClose}
-      title={`Stock history: ${product?.name ?? ""}`}
+      title={product?.name ?? ""}
       size={440}
     >
       <ul className="divide-y divide-line">
         {rows.length === 0 && (
           <p className="py-6 text-center text-sm text-fg-muted">
-            No movements yet.
+            {t("No history yet")}
           </p>
         )}
         {rows.map((m) => (
@@ -45,8 +56,8 @@ export function StockHistoryDrawer({
             className="flex items-center justify-between py-2.5 text-sm"
           >
             <div>
-              <p className="capitalize text-fg">
-                {String(m.reason)}
+              <p className="text-fg">
+                {REASONS[String(m.reason)] ? t(REASONS[String(m.reason)]) : String(m.reason)}
                 {m.invoice_number ? (
                   <span className="ml-1 font-mono text-xs text-fg-subtle">
                     {String(m.invoice_number)}
@@ -55,12 +66,12 @@ export function StockHistoryDrawer({
               </p>
               <p className="text-xs text-fg-subtle">
                 {fmtDate(String(m.created_at))}
-                {m.user_name ? ` by ${m.user_name}` : ""}
+                {m.user_name ? ` · ${m.user_name}` : ""}
                 {m.note ? ` · ${m.note}` : ""}
               </p>
             </div>
             <span
-              className={`tabular font-medium ${Number(m.change_qty) > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}
+              className="tabular font-medium text-fg"
             >
               {Number(m.change_qty) > 0 ? "+" : ""}
               {num(Number(m.change_qty))}{" "}

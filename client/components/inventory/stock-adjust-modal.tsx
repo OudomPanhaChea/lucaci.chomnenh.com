@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import api, { apiError } from "@/services/api";
 import { num } from "@/lib/format";
 import type { Product } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 interface StockAdjustModalProps {
   /** null = closed */
@@ -20,6 +21,7 @@ export function StockAdjustModal({
   onSaved,
 }: StockAdjustModalProps) {
   const [form] = Form.useForm();
+  const { t } = useT();
 
   useEffect(() => {
     if (!product) return;
@@ -35,7 +37,7 @@ export function StockAdjustModal({
         change_qty: direction === "in" ? qty : -qty,
         note,
       });
-      toast.success("Stock updated");
+      toast.success(t("Saved"));
       onClose();
       onSaved();
     } catch (err) {
@@ -49,12 +51,13 @@ export function StockAdjustModal({
       onCancel={onClose}
       centered
       width={420}
-      title={`Adjust stock: ${product?.name ?? ""}`}
+      title={product?.name ?? ""}
       onOk={adjustStock}
-      okText="Apply"
+      okText={t("Save")}
+      cancelText={t("Cancel")}
     >
       <div className="mb-4 mt-2 rounded-lg bg-surface-sunken p-3 text-center">
-        <p className="text-xs text-fg-subtle">Current stock</p>
+        <p className="text-xs text-fg-subtle">{t("Stock")}</p>
         <p className="tabular text-2xl font-semibold text-fg">
           {num(product?.stock_qty)} {product?.base_unit || "pcs"}
         </p>
@@ -64,20 +67,20 @@ export function StockAdjustModal({
           <Segmented
             block
             options={[
-              { value: "in", label: "Stock in (restock)" },
-              { value: "out", label: "Stock out (damage)" },
+              { value: "in", label: t("Add stock") },
+              { value: "out", label: t("Remove stock") },
             ]}
           />
         </Form.Item>
         <Form.Item
-          label={`Quantity (${product?.base_unit || "pcs"})`}
+          label={`${t("Qty")} (${product?.base_unit || "pcs"})`}
           name="qty"
-          rules={[{ required: true, message: "Quantity required" }]}
+          rules={[{ required: true, message: t("Required") }]}
         >
           <InputNumber min={1} className="w-full!" autoFocus />
         </Form.Item>
-        <Form.Item label="Note" name="note" className="!mb-2">
-          <Input placeholder="Reason (optional)" />
+        <Form.Item label={t("Note")} name="note" className="!mb-2">
+          <Input />
         </Form.Item>
         <Form.Item noStyle shouldUpdate>
           {({ getFieldValue }) => {
@@ -88,11 +91,11 @@ export function StockAdjustModal({
               (getFieldValue("direction") === "in" ? qty : -qty);
             return next < 0 ? (
               <p className="text-sm text-rose-600 dark:text-rose-400">
-                This would take stock below zero.
+                {t("Stock cannot go below zero.")}
               </p>
             ) : (
               <p className="text-sm text-fg-muted">
-                After applying:{" "}
+                {t("New stock")}:{" "}
                 <span className="tabular font-medium text-fg">
                   {num(next)} {product.base_unit || "pcs"}
                 </span>

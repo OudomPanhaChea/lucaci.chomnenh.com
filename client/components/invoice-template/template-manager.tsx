@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dropdown, Popconfirm, Spin } from "antd";
 import { toast } from "react-toastify";
-import { Plus, Pencil, Trash2, Star, Check, CircleDollarSign } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImageDropzone } from "@/components/ui/image-dropzone";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,6 +10,7 @@ import { FileText } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
 import type { Settings } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 import type { InvoiceTemplate, TemplateElement } from "./types";
 import { PRESETS } from "./presets";
 import { sampleInvoiceData } from "./bindings";
@@ -24,6 +25,7 @@ export default function TemplateManager({
   settings: Settings | null;
   onSettings: (s: Settings) => void;
 }) {
+  const { t: tr } = useT();
   const [templates, setTemplates] = useState<InvoiceTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [khqrBusy, setKhqrBusy] = useState(false);
@@ -48,7 +50,7 @@ export default function TemplateManager({
       fd.append("image", file);
       const { data } = await api.post<Settings>("/settings/khqr", fd);
       onSettings(data);
-      toast.success("KHQR image updated");
+      toast.success(tr("Saved"));
     } catch (err) {
       toast.error(apiError(err));
     } finally {
@@ -59,7 +61,7 @@ export default function TemplateManager({
     try {
       const { data } = await api.delete<Settings>("/settings/khqr");
       onSettings(data);
-      toast.success("KHQR image removed");
+      toast.success(tr("Removed"));
     } catch (err) {
       toast.error(apiError(err));
     }
@@ -70,7 +72,7 @@ export default function TemplateManager({
     if (!preset) return;
     try {
       await api.post("/invoice-templates", { name: preset.name, elements: preset.build() });
-      toast.success(`${preset.name} template added`);
+      toast.success(tr("Added"));
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -82,7 +84,7 @@ export default function TemplateManager({
     setSaving(true);
     try {
       await api.put(`/invoice-templates/${editing.id}`, { name, elements });
-      toast.success("Template saved");
+      toast.success(tr("Saved"));
       setEditing(null);
       load();
     } catch (err) {
@@ -103,7 +105,7 @@ export default function TemplateManager({
   const remove = async (t: InvoiceTemplate) => {
     try {
       await api.delete(`/invoice-templates/${t.id}`);
-      toast.success("Template deleted");
+      toast.success(tr("Deleted"));
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -112,11 +114,11 @@ export default function TemplateManager({
 
   return (
     <div className="mt-4 rounded-xl border border-line bg-surface-raised p-5 shadow-card">
-      <h2 className="mb-1 font-medium text-fg">Invoice template</h2>
-      <p className="mb-4 text-xs text-fg-muted">
+      <h2 className="mb-2 font-medium text-fg">{tr("Invoice template")}</h2>
+      {/* <p className="mb-4 text-xs text-fg-muted">
         Design how printed invoices look. Drag and resize anything; the default template is
         used for every invoice unless customized on a client&apos;s invoice.
-      </p>
+      </p> */}
 
       {/* KHQR payment image */}
       <div className="mb-5 flex items-start gap-4 rounded-lg bg-surface-sunken p-3">
@@ -125,42 +127,31 @@ export default function TemplateManager({
             value={settings?.khqr_url}
             onSelect={uploadKhqr}
             onRemove={settings?.khqr_url ? removeKhqr : undefined}
-            removeConfirm="Remove the KHQR image?"
             busy={khqrBusy}
             aspect={0.8}
-            cropTitle="Crop KHQR"
             className="aspect-[4/5] w-full"
             rounded="rounded-lg"
             label="KHQR"
-            hint="Upload"
           />
         </div>
-        <div className="min-w-0 pt-1">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
-            <CircleDollarSign className="h-4 w-4 text-brand" /> Payment QR (KHQR)
-          </p>
-          <p className="mt-1 text-xs text-fg-muted">
-            Upload your Bakong / KHQR image once. Add a <b>QR</b> element to any template and it
-            shows this image. Drag it anywhere and resize it on the canvas.
-          </p>
-        </div>
+        <p className="min-w-0 pt-1 text-sm font-medium text-fg">{tr("Payment QR (KHQR)")}</p>
       </div>
 
       {/* Templates */}
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-medium text-fg">Templates</p>
+        <p className="text-sm font-medium text-fg">{tr("Templates")}</p>
         <Dropdown
           trigger={["click"]}
-          menu={{ items: PRESETS.map((p) => ({ key: p.key, label: `${p.name} style` })), onClick: ({ key }) => createFromPreset(key) }}
+          menu={{ items: PRESETS.map((p) => ({ key: p.key, label: p.name })), onClick: ({ key }) => createFromPreset(key) }}
         >
-          <Button type="primary" size="small" icon={<Plus className="h-4 w-4" />}>Add template</Button>
+          <Button type="primary" size="small" icon={<Plus className="h-4 w-4" />}>{tr("Add template")}</Button>
         </Dropdown>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-8"><Spin /></div>
       ) : templates.length === 0 ? (
-        <EmptyState icon={FileText} title="No templates yet" description="Add a Modern or Minimal template to get started." />
+        <EmptyState icon={FileText} title={tr("No invoice template yet")} />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {templates.map((t) => (
@@ -170,8 +161,8 @@ export default function TemplateManager({
                   <TemplateCanvas elements={t.elements} data={data} scale={0.185} />
                 </div>
                 {!!t.is_default && (
-                  <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-[10px] font-medium text-brand-foreground">
-                    <Star className="h-3 w-3" /> Default
+                  <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-surface-raised px-2 py-0.5 text-[10px] font-medium text-fg shadow-card">
+                    <Star className="h-3 w-3" /> {tr("Default")}
                   </span>
                 )}
               </div>
@@ -179,11 +170,23 @@ export default function TemplateManager({
                 <span className="truncate text-sm font-medium text-fg">{t.name}</span>
                 <div className="flex shrink-0 items-center">
                   {!t.is_default && (
-                    <Button size="small" type="text" title="Set as default" icon={<Check className="h-4 w-4" />} onClick={() => setDefault(t)} />
+                    <Button
+                      size="small" type="text" title={tr("Set as default")}
+                      aria-label={tr("Set as default")}
+                      icon={<Check className="h-4 w-4" />} onClick={() => setDefault(t)}
+                    />
                   )}
-                  <Button size="small" type="text" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(t)} />
-                  <Popconfirm title={`Delete ${t.name}?`} onConfirm={() => remove(t)} okButtonProps={{ danger: true }}>
-                    <Button size="small" type="text" danger icon={<Trash2 className="h-4 w-4" />} />
+                  <Button
+                    size="small" type="text" title={tr("Edit")}
+                    aria-label={tr("Edit")}
+                    icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(t)}
+                  />
+                  <Popconfirm title={tr("Delete {name}?", { name: t.name })} okText={tr("Delete")} cancelText={tr("Cancel")} onConfirm={() => remove(t)} okButtonProps={{ danger: true }}>
+                    <Button
+                      size="small" type="text" danger title={tr("Delete")}
+                      aria-label={tr("Delete")}
+                      icon={<Trash2 className="h-4 w-4" />}
+                    />
                   </Popconfirm>
                 </div>
               </div>
@@ -194,11 +197,12 @@ export default function TemplateManager({
 
       <TemplateEditorModal
         open={!!editing}
-        title={`Edit template${editing ? ` · ${editing.name}` : ""}`}
+        title={`${tr("Edit template")}${editing ? ` · ${editing.name}` : ""}`}
         initialElements={editing?.elements ?? []}
         initialName={editing?.name}
         withName
         data={data}
+        previewSettings={settings}
         saving={saving}
         onSave={saveTemplate}
         onClose={() => setEditing(null)}

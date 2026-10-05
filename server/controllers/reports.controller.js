@@ -72,9 +72,10 @@ export async function summary(req, res) {
      FROM sales s WHERE ${where}`, params
   );
 
-  // Units as sold (1000 boxes = 1000), never converted to base units
+  // Items = different products sold, never summed quantities (10 pcs + 10
+  // boxes of one product is ONE item; adding pieces to boxes means nothing)
   const [[{ items_sold }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold
+    `SELECT COUNT(DISTINCT COALESCE(si.product_id, CONCAT('n:', si.name_snapshot))) AS items_sold
      FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE ${where}`, params
   );
 
@@ -137,7 +138,7 @@ export async function dashboard(req, res) {
     [BUSINESS_ID]
   );
   const [[{ items_sold }]] = await pool.query(
-    `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold
+    `SELECT COUNT(DISTINCT COALESCE(si.product_id, CONCAT('n:', si.name_snapshot))) AS items_sold
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
      WHERE s.business_id = ? AND s.status <> 'voided' AND DATE(s.created_at) = CURDATE()`,
     [BUSINESS_ID]

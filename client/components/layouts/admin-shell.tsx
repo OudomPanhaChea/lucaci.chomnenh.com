@@ -25,18 +25,20 @@ import { getSocket } from "@/services/socket";
 import { useRealtime } from "@/hooks/useRealtime";
 import api from "@/services/api";
 import UserMenu from "@/components/layouts/user-menu";
+import LanguageSwitch from "@/components/language-switch";
 import PublicMenuModal from "@/components/layouts/public-menu-modal";
 import PullToRefresh from "@/components/pwa/pull-to-refresh";
 import type { Role, Settings as SettingsType } from "@/lib/types";
+import { useT, type TKey } from "@/lib/i18n";
 
 const { Header, Content, Sider } = Layout;
 
 // Same flattened, categorized sidebar concept as WisePOS
 const NAV: {
-  category: string;
+  category: TKey;
   items: {
     key: string;
-    label: string;
+    label: TKey;
     href: string;
     icon: typeof LayoutDashboard;
     roles?: Role[];
@@ -58,7 +60,7 @@ const NAV: {
     items: [
       {
         key: "pos",
-        label: "Sell (POS)",
+        label: "Sell",
         href: "/admin/pos",
         icon: ShoppingCart,
       },
@@ -69,7 +71,7 @@ const NAV: {
     items: [
       {
         key: "inventory",
-        label: "Inventory",
+        label: "Products",
         href: "/admin/inventory",
         icon: Boxes,
       },
@@ -150,6 +152,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [menuOpen, setMenuOpen] = useState(false); // public-menu share dialog
   const connected = useSocketConnected(user?.id);
+  const { t } = useT();
 
   useEffect(() => {
     api
@@ -293,7 +296,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
               <div key={section.category} className="mb-2">
                 {!collapsed && (
                   <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">
-                    {section.category}
+                    {t(section.category)}
                   </p>
                 )}
                 {section.items.map((item) => {
@@ -304,7 +307,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                       key={item.key}
                       href={item.href}
                       onClick={closeOnMobile}
-                      title={collapsed ? item.label : undefined}
+                      title={collapsed ? t(item.label) : undefined}
                       className={`mb-0.5 flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors duration-200 ${
                         active
                           ? "bg-brand-soft font-medium text-brand-soft-foreground"
@@ -313,7 +316,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                     >
                       <Icon className="h-4.5 w-4.5 shrink-0" />
                       {!collapsed && (
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate">{t(item.label)}</span>
                       )}
                     </Link>
                   );
@@ -330,13 +333,13 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                   setMenuOpen(true);
                   closeOnMobile();
                 }}
-                title={collapsed ? "Public menu" : undefined}
+                title={collapsed ? t("Public menu") : undefined}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg ${
                   collapsed ? "justify-center" : ""
                 }`}
               >
                 <ExternalLink className="h-4.5 w-4.5 shrink-0" />
-                {!collapsed && <span>Public menu</span>}
+                {!collapsed && <span>{t("Public menu")}</span>}
               </button>
             </div>
           </nav>
@@ -346,7 +349,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             <div className="sider-safe shrink-0 border-t border-line p-2">
               <button
                 type="button"
-                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={collapsed ? t("Expand") : t("Collapse")}
                 onClick={() => setCollapsed(!collapsed)}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg ${
                   collapsed ? "justify-center" : ""
@@ -357,7 +360,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                 ) : (
                   <>
                     <PanelLeftClose className="h-4.5 w-4.5 shrink-0" />
-                    <span>Collapse</span>
+                    <span>{t("Collapse")}</span>
                   </>
                 )}
               </button>
@@ -375,7 +378,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             {broken && (
               <button
                 type="button"
-                aria-label="Open menu"
+                aria-label={t("Menu")}
                 onClick={() => setCollapsed(!collapsed)}
                 className="-ml-1 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg"
               >
@@ -404,7 +407,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
               </span>
             </div>
 
-            <span className="hidden h-5 w-px shrink-0 bg-line sm:block" />
+            {/* <span className="hidden h-5 w-px shrink-0 bg-line sm:block" />
 
             <Tooltip
               title={
@@ -429,10 +432,11 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                   {connected ? "Live" : "Offline"}
                 </span>
               </span>
-            </Tooltip>
+            </Tooltip> */}
           </div>
 
-          <div className="flex shrink-0 items-center">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <LanguageSwitch />
             <UserMenu />
           </div>
         </Header>

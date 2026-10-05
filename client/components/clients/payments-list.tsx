@@ -4,13 +4,14 @@ import { Popconfirm, Tooltip } from "antd";
 import { toast } from "react-toastify";
 import { ChevronRight, Pencil, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { useStatusLabel } from "@/components/ui/status-badge";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import LedgerEditModal from "@/components/clients/ledger-edit-modal";
 import api, { apiError } from "@/services/api";
 import { money, fmtDate } from "@/lib/format";
 import type { Payment } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 // Rows that belong to the client alone (no invoice) and can be corrected in
 // place. Invoice payments drive the sale's status, so they are fixed by
@@ -33,6 +34,8 @@ export default function PaymentsList({
   onOpenInvoice: (id: number) => void;
   onChanged?: () => void;
 }) {
+  const { t } = useT();
+  const statusLabel = useStatusLabel();
   const [editing, setEditing] = useState<Payment | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -40,7 +43,7 @@ export default function PaymentsList({
     setDeletingId(p.id);
     try {
       await api.delete(`/clients/${clientId}/payments/${p.id}`);
-      toast.success("Ledger entry deleted");
+      toast.success(t("Deleted"));
       onChanged?.();
     } catch (err) {
       toast.error(apiError(err));
@@ -54,8 +57,7 @@ export default function PaymentsList({
     return (
       <EmptyState
         icon={Wallet}
-        title="No payments yet"
-        description="Money received for invoices and prepaid deposits will be listed here."
+        title={t("No payments yet")}
       />
     );
   }
@@ -76,31 +78,17 @@ export default function PaymentsList({
               }`}
             >
               <div className="min-w-0">
-                <p className="flex items-center gap-2">
-                  <StatusBadge
-                    status={p.type === "sale" ? p.method : p.type}
-                    label={
-                      p.type === "owing_add"
-                        ? "Old owing"
-                        : p.type === "owing_pay"
-                          ? "Owing paid"
-                          : undefined
-                    }
-                  />
+                <p className="flex items-center gap-2 text-fg">
+                  {statusLabel(p.type === "sale" ? p.method : p.type)}
                   {Boolean(p.is_paydown) && (
-                    <span
-                      title="Received after the sale: this payment pays down what was owing"
-                      className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-fg-muted"
-                    >
-                      Paydown
-                    </span>
+                    <span className="text-xs text-fg-subtle">· {t("Owing paid")}</span>
                   )}
                   {p.invoice_number && <span className="font-mono text-xs text-fg-subtle">{p.invoice_number}</span>}
                 </p>
                 <p className="mt-0.5 text-xs text-fg-subtle">
                   {fmtDate(p.created_at)}
-                  {p.received_by ? `, by ${p.received_by}` : ""}
-                  {p.note ? `, ${p.note}` : ""}
+                  {p.received_by ? ` · ${p.received_by}` : ""}
+                  {p.note ? ` · ${p.note}` : ""}
                 </p>
               </div>
               <span className="flex items-center gap-2">
@@ -118,7 +106,7 @@ export default function PaymentsList({
                     className="flex items-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Tooltip title="Edit entry">
+                    <Tooltip title={t("Edit")}>
                       <Button
                         size="small"
                         type="text"
@@ -127,13 +115,13 @@ export default function PaymentsList({
                       />
                     </Tooltip>
                     <Popconfirm
-                      title="Delete this entry?"
-                      description="The client's balance is adjusted back."
-                      okText="Delete"
+                      title={t("Delete?")}
+                      okText={t("Delete")}
+                      cancelText={t("Cancel")}
                       okButtonProps={{ danger: true }}
                       onConfirm={() => remove(p)}
                     >
-                      <Tooltip title="Delete entry">
+                      <Tooltip title={t("Delete")}>
                         <Button
                           danger
                           size="small"

@@ -6,6 +6,8 @@ import { toast } from "react-toastify";
 import api, { apiError } from "@/services/api";
 import { money } from "@/lib/format";
 import type { Client, PaymentMethod } from "@/lib/types";
+import { useT } from "@/lib/i18n";
+import { useMethodOptions } from "@/components/ui/status-badge";
 
 // Old owing: debt the client carried from before this system, entered as a
 // plain amount (no items, no invoice). mode "add" records more of it, mode
@@ -19,6 +21,8 @@ export default function OwingModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t } = useT();
+  const methodOptions = useMethodOptions();
   const [amount, setAmount] = useState<number | null>(null);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [note, setNote] = useState("");
@@ -45,12 +49,8 @@ export default function OwingModal({
       const body = isPay
         ? { amount, method, note: note.trim() || null }
         : { amount, note: note.trim() || null };
-      const { data } = await api.post(url, body);
-      toast.success(
-        isPay
-          ? `Payment recorded, ${money(data.opening_owing)} old owing remains`
-          : `Old owing recorded, now ${money(data.opening_owing)}`,
-      );
+      await api.post(url, body);
+      toast.success(t("Saved"));
       onDone();
       onClose();
     } catch (err) {
@@ -66,22 +66,9 @@ export default function OwingModal({
       onCancel={onClose}
       centered
       width={420}
-      title={
-        client
-          ? isPay
-            ? `Receive old owing from ${client.name}`
-            : `Add old owing for ${client.name}`
-          : ""
-      }
-      okText={
-        amount
-          ? isPay
-            ? `Receive ${money(amount)}`
-            : `Record ${money(amount)} owing`
-          : isPay
-            ? "Receive"
-            : "Record owing"
-      }
+      title={isPay ? t("Receive owing") : t("Add owing")}
+      okText={t("Save")}
+      cancelText={t("Cancel")}
       onOk={submit}
       confirmLoading={saving}
       okButtonProps={{
@@ -92,20 +79,20 @@ export default function OwingModal({
       {client && (
         <div className="space-y-4 py-2">
           <div className="rounded-lg bg-surface-sunken p-3 text-center text-sm">
-            <p className="text-fg-subtle">Old owing remaining</p>
+            <p className="text-fg-subtle">{t("Previous owing")}</p>
             <p className="tabular text-xl font-semibold text-fg">
               {money(remaining)}
             </p>
           </div>
-          {!isPay && (
+          {/* {!isPay && (
             <p className="rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand-soft-foreground">
               For debt from before this system: only the amount is recorded, no
               items or invoice. Payments received against it are tracked in the
               client&apos;s ledger.
             </p>
-          )}
+          )} */}
           <div>
-            <p className="mb-1 text-sm text-fg-muted">Amount</p>
+            <p className="mb-1 text-sm text-fg-muted">{t("Amount")}</p>
             <InputNumber
               autoFocus size="large" className="!w-full" min={0.01}
               max={isPay ? remaining : undefined} prefix="$"
@@ -117,16 +104,11 @@ export default function OwingModal({
               block
               value={method}
               onChange={(v) => setMethod(v as PaymentMethod)}
-              options={[
-                { label: "Cash", value: "cash" },
-                { label: "KHQR", value: "khqr" },
-                { label: "Card", value: "card" },
-                { label: "Bank", value: "bank" },
-              ]}
+              options={methodOptions}
             />
           )}
           <Input
-            placeholder="Note (optional)"
+            placeholder={t("Note")}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             maxLength={255}

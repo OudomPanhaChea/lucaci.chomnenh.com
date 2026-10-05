@@ -1,5 +1,6 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from "axios";
 import { looksLikeEdgeChallenge, reloadOnceForChallenge } from "@/lib/challenge-recovery";
+import { t, tServer } from "@/lib/i18n";
 
 // Same-origin: next.config.ts rewrites /api → Express in dev; nginx does it
 // in production. The JWT lives in an httpOnly cookie.
@@ -62,11 +63,13 @@ api.interceptors.response.use(undefined, (err) => {
   return Promise.reject(err);
 });
 
-export function apiError(err: unknown, fallback = "Something went wrong"): string {
+export function apiError(err: unknown, fallback?: string): string {
+  const fb = fallback ?? t("Something went wrong");
   if (axios.isAxiosError(err)) {
-    return (err.response?.data as { message?: string })?.message || fallback;
+    const message = (err.response?.data as { message?: string })?.message;
+    return message ? tServer(message) : fb;
   }
-  return fallback;
+  return fb;
 }
 
 export default api;

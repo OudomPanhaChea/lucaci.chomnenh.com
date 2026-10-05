@@ -91,11 +91,17 @@ router.post("/sales", sales.createSale);
 router.get("/sales", sales.listSales);
 router.get("/sales/:id", sales.getSale);
 router.post("/sales/:id/payments", sales.receivePayment);
+// Correcting an invoice rewrites what it says, so it is gated like voiding.
+router.put("/sales/:id", manager, sales.updateSale);
+// Bonuses are manager-only, so flagging an invoice for one is too.
+router.put("/sales/:id/bonus-mark", manager, sales.markSaleForBonus);
 router.post("/sales/:id/void", manager, sales.voidSale);
 router.put("/sales/:id/layout", sales.saveInvoiceLayout);
 router.delete("/sales/:id", requireRole("owner"), sales.deleteSale);
 
 router.get("/invoice-templates", templates.listTemplates);
+// Declared before /:id so "image" is never read as a template id.
+router.post("/invoice-templates/image", requireRole("owner"), uploadBranding, templates.uploadTemplateImage);
 router.get("/invoice-templates/:id", templates.getTemplate);
 router.post("/invoice-templates", requireRole("owner"), templates.createTemplate);
 router.put("/invoice-templates/:id", requireRole("owner"), templates.updateTemplate);

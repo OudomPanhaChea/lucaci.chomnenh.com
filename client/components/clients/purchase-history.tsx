@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { money, num, fmtDate } from "@/lib/format";
 import type { Sale } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 const balanceOf = (s: Sale) => Number(s.total) - Number(s.amount_paid);
 const isOwing = (s: Sale) => s.status !== "voided" && balanceOf(s) > 0;
@@ -38,6 +39,7 @@ export default function PurchaseHistory({
   onPay: (s: Sale) => void;
   onCreatePaper: (saleIds: number[], owingOnlyIds?: number[]) => void;
 }) {
+  const { t } = useT();
   const [sel, setSel] = useState<number[]>([]);
   // Ticked invoices flagged to be carried into previous owing instead of printed
   // (subset of sel).
@@ -47,7 +49,9 @@ export default function PurchaseHistory({
   // Drop selections that no longer exist or got voided meanwhile
   useEffect(() => {
     setSel((prev) => prev.filter((id) => selectable.some((s) => s.id === id)));
-    setOwingOnly((prev) => prev.filter((id) => selectable.some((s) => s.id === id)));
+    setOwingOnly((prev) =>
+      prev.filter((id) => selectable.some((s) => s.id === id)),
+    );
   }, [selectable]);
 
   if (loading)
@@ -60,17 +64,17 @@ export default function PurchaseHistory({
     return (
       <EmptyState
         icon={ReceiptText}
-        title="No purchases yet"
-        description={
-          hasRange
-            ? "Nothing was bought in the selected period. Try a wider date range."
-            : "Invoices will show up here after this client's first sale at the POS."
+        title={hasRange ? t("No results") : t("No purchases yet")}
+        action={
+          canPaperAlone ? (
+            <Button
+              icon={<Printer className="h-3.5 w-3.5" />}
+              onClick={() => onCreatePaper([])}
+            >
+              {t("Invoice")}
+            </Button>
+          ) : undefined
         }
-        action={canPaperAlone ? (
-          <Button icon={<Printer className="h-3.5 w-3.5" />} onClick={() => onCreatePaper([])}>
-            Owing statement
-          </Button>
-        ) : undefined}
       />
     );
   }
@@ -92,20 +96,13 @@ export default function PurchaseHistory({
                 if (!e.target.checked) setOwingOnly([]);
               }}
             />
-            Select all
+            {t("Select all")}
           </label>
           {sel.length > 0 ? (
             <div className="ml-auto flex items-center gap-2.5">
               <span className="tabular text-xs font-medium text-fg">
-                {sel.length} invoice{sel.length === 1 ? "" : "s"}
-                {selOwing > 0 && (
-                  <>
-                    {" · "}
-                    <span className="text-rose-600 dark:text-rose-400">
-                      {money(selOwing)} owing
-                    </span>
-                  </>
-                )}
+                {t("{n} selected", { n: sel.length })}
+                {selOwing > 0 && ` · ${t("Owing {amount}", { amount: money(selOwing) })}`}
               </span>
               <Button
                 type="primary"
@@ -113,7 +110,7 @@ export default function PurchaseHistory({
                 icon={<Printer className="h-3.5 w-3.5" />}
                 onClick={() => onCreatePaper(sel, owingOnly)}
               >
-                Invoice
+                {t("Invoice")}
               </Button>
             </div>
           ) : canPaperAlone ? (
@@ -123,16 +120,12 @@ export default function PurchaseHistory({
                 icon={<Printer className="h-3.5 w-3.5" />}
                 onClick={() => onCreatePaper([])}
               >
-                Invoice
+                {t("Invoice")}
               </Button>
             </div>
           ) : null}
         </div>
-      ) : (
-        <p className="mb-1.5 text-xs text-fg-subtle">
-          Click a purchase to see the full invoice.
-        </p>
-      )}
+      ) : null}
       <ul className="space-y-1">
         {sales.map((s) => {
           const bal = balanceOf(s);
@@ -158,7 +151,7 @@ export default function PurchaseHistory({
                   >
                     <Checkbox
                       checked={sel.includes(s.id)}
-                      aria-label={`Select ${s.invoice_number} for the combined invoice`}
+                      aria-label={s.invoice_number}
                       onChange={(e) => {
                         setSel((prev) =>
                           e.target.checked
@@ -166,31 +159,33 @@ export default function PurchaseHistory({
                             : prev.filter((x) => x !== s.id),
                         );
                         if (!e.target.checked)
-                          setOwingOnly((prev) => prev.filter((x) => x !== s.id));
+                          setOwingOnly((prev) =>
+                            prev.filter((x) => x !== s.id),
+                          );
                       }}
                     />
                   </span>
                 )}
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-foreground">
+                {/* <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-foreground">
                   <ReceiptText className="h-4.5 w-4.5" />
-                </span>
+                </span> */}
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 font-medium text-fg">
-                    <span className="truncate">
-                      {fmtDate(s.created_at, "dd MMM yyyy")}
-                    </span>
+                    <span className="truncate">{s.invoice_number}</span>
                     <StatusBadge status={s.status} />
                   </p>
                   <p className="truncate font-mono text-xs text-fg-subtle">
-                    {s.invoice_number}
-                    {s.item_count ? `, ${num(s.item_count)} items` : ""}
+                    {fmtDate(s.created_at, "dd MMM yyyy")}
+                    {s.item_count ? ` · ${t("{n} items", { n: num(s.item_count) })}` : ""}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="tabular font-medium text-fg">{money(s.total)}</p>
+                  <p className="tabular font-medium text-fg">
+                    {money(s.total)}
+                  </p>
                   {owes && (
                     <p className="tabular text-xs text-rose-600 dark:text-rose-400">
-                      {money(bal)} owing
+                      {t("Owing {amount}", { amount: money(bal) })}
                     </p>
                   )}
                 </div>
@@ -204,7 +199,7 @@ export default function PurchaseHistory({
                       onPay(s);
                     }}
                   >
-                    Pay
+                    {t("Pay")}
                   </Button>
                 )}
                 <ChevronRight className="h-4 w-4 shrink-0 text-fg-subtle transition-colors duration-150 group-hover:text-fg" />
@@ -228,7 +223,7 @@ export default function PurchaseHistory({
                         )
                       }
                     />
-                    បុងចាស់
+                    {t("Old bill")}
                   </label>
                 </div>
               )}

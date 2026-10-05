@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import api, { apiError } from "@/services/api";
 import type { Category } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 interface CategoriesDrawerProps {
   open: boolean;
@@ -20,6 +21,7 @@ export function CategoriesDrawer({
   onChanged,
 }: CategoriesDrawerProps) {
   const [form] = Form.useForm();
+  const { t } = useT();
 
   const saveCategory = async (values: { name: string }) => {
     try {
@@ -41,17 +43,17 @@ export function CategoriesDrawer({
   };
 
   return (
-    <Drawer open={open} onClose={onClose} title="Categories" size={380}>
+    <Drawer open={open} onClose={onClose} title={t("Categories")} size={380}>
       <Form form={form} onFinish={saveCategory} className="mb-4 flex gap-2">
         <Form.Item
           name="name"
           className="!mb-0 flex-1"
-          rules={[{ required: true, message: "Name required" }]}
+          rules={[{ required: true, message: t("Enter a name") }]}
         >
-          <Input placeholder="New category name" />
+          <Input placeholder={t("New category")} />
         </Form.Item>
         <Button type="primary" htmlType="submit">
-          Add
+          {t("Add")}
         </Button>
       </Form>
       <ul className="divide-y divide-line">
@@ -59,13 +61,14 @@ export function CategoriesDrawer({
           <li key={c.id} className="flex items-center justify-between py-2.5">
             <span className="text-fg">
               {c.name}
-              <span className="ml-2 text-xs text-fg-subtle">
-                {c.product_count} products
+              <span className="tabular ml-2 text-xs text-fg-subtle">
+                {c.product_count}
               </span>
             </span>
             <Popconfirm
-              title={`Delete "${c.name}"?`}
-              description="Products keep existing but lose this category."
+              title={t("Delete {name}?", { name: c.name })}
+              okText={t("Delete")}
+              cancelText={t("Cancel")}
               onConfirm={() => removeCategory(c)}
             >
               <Button

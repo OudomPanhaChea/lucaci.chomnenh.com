@@ -1,22 +1,23 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { DatePicker, Input, Select, Table } from "antd";
-import dayjs, { Dayjs } from "dayjs";
+import { Dayjs } from "dayjs";
 import api from "@/services/api";
 import { useRealtime } from "@/hooks/useRealtime";
-import { useAuth } from "@/hooks/useAuth";
 import { SectionHeader } from "@/components/ui/section-header";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge, useStatusLabel, useMethodOptions } from "@/components/ui/status-badge";
 import InvoiceDetailModal from "@/components/invoice-detail-modal";
-import InvoicePaperModal from "@/components/invoice-template/invoice-paper-modal";
 import { money, fmtDate, num } from "@/lib/format";
 import type { Sale } from "@/lib/types";
+import { useT } from "@/lib/i18n";
+import { rangePresets } from "@/lib/range-presets";
 
 const { RangePicker } = DatePicker;
 
 export default function InvoicesPage() {
-  const { user } = useAuth();
-  const isManager = user?.role === "owner" || user?.role === "admin";
+  const { t } = useT();
+  const statusLabel = useStatusLabel();
+  const methodOptions = useMethodOptions();
   const [rows, setRows] = useState<Sale[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -26,7 +27,6 @@ export default function InvoicesPage() {
   const [method, setMethod] = useState<string | undefined>();
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [invoiceIds, setInvoiceIds] = useState<number[] | null>(null); // canvas invoice paper
 
   const load = useCallback(() => {
     setLoading(true);
@@ -53,28 +53,19 @@ export default function InvoicesPage() {
 
   return (
     <div>
-      <SectionHeader title="Invoices" subtitle={`${total} invoices`} />
+      <SectionHeader title={t("Invoices")} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Input allowClear className="!w-64" placeholder="Search invoice number or client"
+        <Input allowClear className="!w-64" placeholder={t("Search")}
           value={search} onChange={(e) => { setPage(1); setSearch(e.target.value); }} />
         <RangePicker value={range} onChange={(v) => { setPage(1); setRange(v as [Dayjs, Dayjs] | null); }}
-          presets={[
-            { label: "Today", value: [dayjs(), dayjs()] },
-            { label: "This week", value: [dayjs().startOf("week"), dayjs()] },
-            { label: "This month", value: [dayjs().startOf("month"), dayjs()] },
-          ]} />
-        <Select allowClear placeholder="Status" className="!w-32" value={status}
+          presets={rangePresets(t)} />
+        <Select allowClear placeholder={t("Status")} className="!w-32" value={status}
           onChange={(v) => { setPage(1); setStatus(v); }}
-          options={[
-            { value: "paid", label: "Paid" },
-            { value: "partial", label: "Partial" },
-            { value: "unpaid", label: "Unpaid" },
-            { value: "voided", label: "Voided" },
-          ]} />
-        <Select allowClear placeholder="Payment" className="!w-32" value={method}
+          options={["paid", "partial", "unpaid", "voided"].map((s) => ({ value: s, label: statusLabel(s) }))} />
+        <Select allowClear placeholder={t("Method")} className="!w-32" value={method}
           onChange={(v) => { setPage(1); setMethod(v); }}
-          options={["cash", "khqr", "card", "bank"].map((m) => ({ value: m, label: m.toUpperCase() }))} />
+          options={methodOptions} />
       </div>
 
       <div className="rounded-xl border border-line bg-surface-raised shadow-card">
@@ -89,20 +80,21 @@ export default function InvoicesPage() {
           }}
           onRow={(s) => ({ onClick: () => setDetailId(s.id), className: "cursor-pointer" })}
           columns={[
-            { title: "Invoice", dataIndex: "invoice_number", width: 180,
+            { title: t("Invoice"), dataIndex: "invoice_number", width: 180,
               render: (v) => <span className="font-mono text-xs text-fg">{v}</span> },
-            { title: "Date", dataIndex: "created_at", width: 150,
+            { title: t("Date"), dataIndex: "created_at", width: 150,
               render: (v) => <span className="text-fg-muted">{fmtDate(v)}</span> },
-            { title: "Client", dataIndex: "client_name", render: (v) => v || <span className="text-fg-subtle">Walk-in</span> },
-            { title: "Cashier", dataIndex: "cashier_name", width: 120, render: (v) => <span className="text-fg-muted">{v}</span> },
-            { title: "Items", dataIndex: "item_count", width: 120, align: "center",
+            { title: t("Client"), dataIndex: "client_name", render: (v) => v || <span className="text-fg-subtle">{t("Walk-in")}</span> },
+            { title: t("Cashier"), dataIndex: "cashier_name", width: 120, render: (v) => <span className="text-fg-muted">{v}</span> },
+            // Different products on the invoice (a, b and c = 3), not summed qty
+            { title: t("Items"), dataIndex: "item_count", width: 120, align: "center",
               render: (v) => <span className="tabular">{num(v)}</span> },
-            { title: "Payment", dataIndex: "payment_method", width: 100,
-              render: (v) => <StatusBadge status={v} /> },
-            { title: "Status", dataIndex: "status", width: 100, render: (v) => <StatusBadge status={v} /> },
-            { title: "Total", dataIndex: "total", width: 160, align: "right",
+            { title: t("Method"), dataIndex: "payment_method", width: 100,
+              render: (v) => <span className="text-fg-muted">{statusLabel(v)}</span> },
+            { title: t("Status"), dataIndex: "status", width: 110, render: (v) => <StatusBadge status={v} /> },
+            { title: t("Total"), dataIndex: "total", width: 160, align: "right",
               render: (v) => <span className="tabular font-medium">{money(v)}</span> },
-            { title: "Balance", key: "balance", width: 100, align: "right",
+            { title: t("Owing"), key: "balance", width: 110, align: "right",
               render: (_, s) => {
                 const bal = Number(s.total) - Number(s.amount_paid);
                 return s.status !== "voided" && bal > 0
@@ -113,24 +105,11 @@ export default function InvoicesPage() {
         />
       </div>
 
-      {/* Close the detail modal before opening the paper so it doesn't stack
-          on top of the invoice preview */}
+      {/* Owns the A4 invoice paper, editing and bonus marking itself */}
       <InvoiceDetailModal
         saleId={detailId}
         onClose={() => setDetailId(null)}
         onChanged={load}
-        onPaper={(id) => {
-          setDetailId(null);
-          setInvoiceIds([id]);
-        }}
-      />
-
-      <InvoicePaperModal
-        open={!!invoiceIds}
-        saleIds={invoiceIds}
-        canEdit={isManager}
-        onClose={() => setInvoiceIds(null)}
-        onSaved={load}
       />
     </div>
   );

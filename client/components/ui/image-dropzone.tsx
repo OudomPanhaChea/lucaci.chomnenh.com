@@ -8,6 +8,7 @@ import { toast } from "react-toastify";
 import { Spinner } from "@/components/ui/spinner";
 import { ImageCropModal } from "@/components/ui/image-crop-modal";
 import { validateImageFile } from "@/lib/images";
+import { useT } from "@/lib/i18n";
 
 export type ImageDropzoneHandle = {
   /** Open the file browser (same as clicking the frame). */
@@ -56,23 +57,24 @@ export function ImageDropzone({
   value,
   onSelect,
   onRemove,
-  removeConfirm = "Remove this image?",
+  removeConfirm,
   aspect = 1,
   cropShape = "rect",
   aspectSlider = false,
-  cropTitle = "Edit image",
+  cropTitle,
   busy = false,
   disabled = false,
   className = "",
   rounded = "rounded-xl",
   fit = "cover",
-  label = "Drop an image, or click to browse",
+  label,
   hint,
-  overlayLabel = "Replace image",
+  overlayLabel,
   placeholder,
   cornerActions = true,
   ref,
 }: Props) {
+  const { t } = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragOver, setDragOver] = useState(false);
@@ -106,7 +108,7 @@ export function ImageDropzone({
       const name = value.startsWith("blob:") ? "image" : (value.split("/").pop() || "image");
       openEditor(URL.createObjectURL(blob), blob.type || "image/jpeg", name);
     } catch {
-      toast.error("Could not load the image to edit");
+      toast.error(t("Could not load the image"));
     }
   };
 
@@ -128,7 +130,7 @@ export function ImageDropzone({
       <div
         role="button"
         tabIndex={inactive ? -1 : 0}
-        aria-label={filled ? "Replace image" : "Upload image"}
+        aria-label={filled ? t("Replace image") : t("Add image")}
         onClick={browse}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -186,7 +188,7 @@ export function ImageDropzone({
                 <UploadCloud className="h-4.5 w-4.5" />
               </span>
               <p className="text-xs font-medium text-fg-muted">
-                {dragOver ? "Drop to add" : label}
+                {dragOver ? t("Drop here") : (label ?? t("Add image"))}
               </p>
               {hint && <p className="text-[11px] leading-snug text-fg-subtle">{hint}</p>}
             </div>
@@ -198,10 +200,10 @@ export function ImageDropzone({
           <div
             className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/55 transition-opacity duration-200 ${dragOver ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
           >
-            {overlayLabel ? (
+            {overlayLabel !== "" ? (
               <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
                 <ImagePlus className="h-3.5 w-3.5" />
-                {dragOver ? "Drop to replace" : overlayLabel}
+                {dragOver ? t("Drop here") : (overlayLabel ?? t("Replace image"))}
               </span>
             ) : (
               <ImagePlus className="h-5 w-5 text-white" />
@@ -219,8 +221,8 @@ export function ImageDropzone({
           <div className="absolute right-1.5 top-1.5 flex gap-1">
             <button
               type="button"
-              aria-label="Edit image"
-              title="Crop or rotate"
+              aria-label={t("Edit image")}
+              title={t("Edit image")}
               onClick={(e) => {
                 e.stopPropagation();
                 editCurrent();
@@ -231,10 +233,15 @@ export function ImageDropzone({
             </button>
             {onRemove && (
               <span onClick={(e) => e.stopPropagation()}>
-                <Popconfirm title={removeConfirm} onConfirm={() => onRemove()}>
+                <Popconfirm
+                  title={removeConfirm ?? t("Remove image?")}
+                  okText={t("Remove")}
+                  cancelText={t("Cancel")}
+                  onConfirm={() => onRemove()}
+                >
                   <button
                     type="button"
-                    aria-label="Remove image"
+                    aria-label={t("Remove image")}
                     className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm transition-colors duration-200 hover:bg-rose-600"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -263,7 +270,7 @@ export function ImageDropzone({
       <ImageCropModal
         open={!!editor}
         src={editor?.src ?? null}
-        title={cropTitle}
+        title={cropTitle ?? t("Edit image")}
         aspect={aspect}
         aspectSlider={aspectSlider}
         cropShape={cropShape}

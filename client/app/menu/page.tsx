@@ -6,13 +6,14 @@ import {
   Phone,
   MapPin,
   Store,
-  Eye,
   ChevronLeft,
   ChevronRight,
   X,
 } from "lucide-react";
 import axios from "axios";
 import ThemeToggle from "@/components/theme/theme-toggle";
+import LanguageSwitch from "@/components/language-switch";
+import { useT } from "@/lib/i18n";
 import { money, khr, unitPrice } from "@/lib/format";
 import Image from "next/image";
 
@@ -44,6 +45,7 @@ type MenuProduct = MenuData["products"][0];
 // slides with a transform instead of native scroll, so no scrollbar can ever
 // appear and the slides loop: past the last one it wraps back to the first.
 function BannerCarousel({ images }: { images: string[] }) {
+  const { t } = useT();
   const count = images.length;
   const [index, setIndex] = useState(0);
   const [drag, setDrag] = useState<{ startX: number; dx: number } | null>(null);
@@ -108,7 +110,7 @@ function BannerCarousel({ images }: { images: string[] }) {
             <img
               key={src}
               src={src}
-              alt="Promotion banner"
+              alt=""
               draggable={false}
               className="aspect-[3/1] w-full flex-none select-none object-cover"
             />
@@ -120,7 +122,7 @@ function BannerCarousel({ images }: { images: string[] }) {
         <>
           <button
             type="button"
-            aria-label="Previous banner"
+            aria-label={t("Previous")}
             onClick={() => go(index - 1)}
             className="absolute left-2 top-1/2 hidden h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-sm transition-colors duration-200 hover:bg-black/55 sm:flex"
           >
@@ -128,7 +130,7 @@ function BannerCarousel({ images }: { images: string[] }) {
           </button>
           <button
             type="button"
-            aria-label="Next banner"
+            aria-label={t("Next")}
             onClick={() => go(index + 1)}
             className="absolute right-2 top-1/2 hidden h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-sm transition-colors duration-200 hover:bg-black/55 sm:flex"
           >
@@ -139,7 +141,7 @@ function BannerCarousel({ images }: { images: string[] }) {
               <button
                 key={src}
                 type="button"
-                aria-label={`Go to banner ${i + 1}`}
+                aria-label={`${i + 1}`}
                 onClick={() => go(i)}
                 className={`h-1.5 cursor-pointer rounded-full transition-all duration-200 ${
                   i === index
@@ -215,6 +217,7 @@ const GRID = "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4";
 // Public read-only menu. No auth cookie needed, no ordering — customers can
 // only browse what the business chose to show (show_in_menu products).
 export default function MenuPage() {
+  const { t } = useT();
   const [data, setData] = useState<MenuData | null>(null);
   const [error, setError] = useState(false);
   const [search, setSearch] = useState("");
@@ -260,18 +263,15 @@ export default function MenuPage() {
     const other = data.products.filter(
       (p) => !p.category_id || !catIds.has(p.category_id),
     );
-    if (other.length) groups.push({ id: 0, name: "Other", products: other });
+    if (other.length) groups.push({ id: 0, name: t("Other"), products: other });
     return groups.filter((g) => g.products.length > 0);
-  }, [data, categories]);
+  }, [data, categories, t]);
 
   if (error) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-surface p-6 text-center">
         <Store className="h-10 w-10 text-fg-subtle" />
-        <h1 className="mt-3 text-lg font-semibold text-fg">Menu unavailable</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          This menu is currently not public. Please check back later.
-        </p>
+        <h1 className="mt-3 text-lg font-semibold text-fg">{t("Menu not available")}</h1>
       </div>
     );
   }
@@ -288,16 +288,14 @@ export default function MenuPage() {
               alt={data?.business.name ?? "Chomnenh"}
               className="h-9 w-9 shrink-0 rounded-lg bg-white object-cover"
             />
-            <div className="min-w-0">
-              <h1 className="truncate font-semibold text-fg">
-                {data?.business.name ?? "Menu"}
-              </h1>
-              <p className="flex items-center gap-1 text-xs text-fg-subtle">
-                <Eye className="h-3 w-3" /> Menu preview
-              </p>
-            </div>
+            <h1 className="min-w-0 truncate font-semibold text-fg">
+              {data?.business.name ?? t("Menu")}
+            </h1>
           </div>
-          <ThemeToggle />
+          <div className="flex shrink-0 items-center gap-2">
+            <LanguageSwitch />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
@@ -314,8 +312,8 @@ export default function MenuPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search the menu"
-            aria-label="Search the menu"
+            placeholder={t("Search")}
+            aria-label={t("Search")}
             className="w-full rounded-xl border border-line bg-surface-raised py-2.5 pl-9 pr-3 text-base text-fg placeholder:text-fg-subtle focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
           />
         </div>
@@ -323,7 +321,7 @@ export default function MenuPage() {
         {/* Category chips */}
         <div className="no-scrollbar sticky top-16 z-20 -mx-4 mb-4 overflow-x-auto bg-surface px-4 py-2">
           <div className="flex gap-1.5">
-            {[{ id: null as number | null, name: "All" }, ...categories].map(
+            {[{ id: null as number | null, name: t("All") }, ...categories].map(
               (c) => (
                 <button
                   key={c.id ?? "all"}
@@ -361,17 +359,13 @@ export default function MenuPage() {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center py-16 text-center">
             <PackageOpen className="h-10 w-10 text-fg-subtle" />
-            <p className="mt-3 text-fg-muted">Nothing matches your search.</p>
+            <p className="mt-3 text-fg-muted">{t("No results")}</p>
           </div>
         ) : showSections ? (
           grouped.map((g) => (
             <section key={g.id} className="mb-8 last:mb-0">
               <div className="mb-3 flex items-center gap-3">
                 <h2 className="text-base font-semibold text-fg">{g.name}</h2>
-                <span className="shrink-0 text-xs text-fg-subtle">
-                  {g.products.length}{" "}
-                  {g.products.length === 1 ? "item" : "items"}
-                </span>
                 <span className="h-px flex-1 bg-line" aria-hidden />
               </div>
               <div className={GRID}>
@@ -435,7 +429,7 @@ export default function MenuPage() {
               )}
             </div>
             <p className="mt-5 text-xs text-fg-subtle">
-              Menu preview only. Visit us in store or call to order.
+              {t("Call or visit us to order.")}
             </p>
             <p className="mt-1 pb-2 text-xs text-fg-subtle">
               © {new Date().getFullYear()} {data.business.name}

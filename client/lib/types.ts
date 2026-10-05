@@ -67,7 +67,7 @@ export interface Client {
   opening_owing: number; // remaining pre-system debt (see owing_add/owing_pay)
   purchase_count?: number;
   total_spent?: number; // money actually received (excludes owing)
-  total_items?: number; // pieces bought across non-voided sales
+  total_items?: number; // different products bought across non-voided sales
   outstanding?: number;
   last_purchase_at?: string | null;
   created_at?: string;
@@ -128,14 +128,32 @@ export interface Sale {
   status: "paid" | "partial" | "unpaid" | "voided";
   voided_at?: string | null;
   voided_by?: string | null;
+  // Set when the invoice was corrected in place: same number, items and
+  // totals rewritten. The paper does not print it.
+  edited_at?: string | null;
+  edited_by?: string | null;
+  // Flagged from the invoice modal for this partner's next bonus; cleared when
+  // a bonus awarding it is saved.
+  bonus_marked_at?: string | null;
+  bonus_marked_by?: string | null;
+  // The linked client's type (joined), so the modal knows whether the invoice
+  // can be marked for a partner bonus.
+  client_type?: "normal" | "partner" | null;
   note: string | null;
   invoice_template_id?: number | null;
   invoice_layout?: import("@/components/invoice-template/types").TemplateElement[] | null;
   // The client's current remaining old owing, joined onto the sale so the
   // invoice paper can print a "Previous owing" line (null = walk-in / none).
   client_opening_owing?: number | string | null;
+  // The linked client's contact details, joined onto the sale for the invoice
+  // paper's Billed To block (null = walk-in, or the client has none on file).
+  client_phone?: string | null;
+  client_address?: string | null;
+  // The day the paper is dated. lucaci has no issue_date column, so this is
+  // always absent and the paper falls back to the day the sale was rung up.
+  issue_date?: string | null;
   created_at: string;
-  item_count?: number;
+  item_count?: number; // different products on the invoice, not summed quantity
   items?: SaleItem[];
   payments?: Payment[];
 }
@@ -198,16 +216,17 @@ export interface BonusClientSummary {
   phone: string | null;
   email: string | null;
   address: string | null;
-  paid_invoices: number;
-  paid_total: number;
-  qty: number; // units as sold, never converted to base units
-  last_paid_at: string | null;
+  invoice_count: number; // non-voided invoices (paid, partial, unpaid)
+  invoice_total: number;
+  qty: number; // different products bought (items), never summed quantity
+  marked_count: number; // invoices flagged "for bonus" from the invoice modal
+  last_invoice_at: string | null;
   last_bonus_at: string | null;
   bonus_total: number;
   bonus_count: number;
 }
 
-// One product aggregated inside one fully paid invoice (level-2 candidate)
+// One product aggregated inside one non-voided invoice (level-2 candidate)
 export interface BonusEligibleItem {
   sale_id: number;
   invoice_number: string;
@@ -223,10 +242,15 @@ export interface BonusEligibleItem {
 
 export interface BonusDetail {
   client: Client;
-  invoices: { id: number; invoice_number: string; total: number; created_at: string; qty: number }[];
+  invoices: {
+    id: number; invoice_number: string; total: number; amount_paid: number;
+    status: "paid" | "partial" | "unpaid"; created_at: string;
+    qty: number; // different products on the invoice
+    bonus_marked_at: string | null; bonus_marked_by: string | null;
+  }[];
   items: BonusEligibleItem[];
   history: Bonus[];
-  period: { invoice_count: number; paid_total: number; qty: number };
+  period: { invoice_count: number; invoice_total: number; qty: number }; // qty = different products
 }
 
 export interface Settings {

@@ -22,9 +22,11 @@ import { CategoriesDrawer } from "@/components/inventory/categories-drawer";
 import { StockAdjustModal } from "@/components/inventory/stock-adjust-modal";
 import { StockHistoryDrawer } from "@/components/inventory/stock-history-drawer";
 import type { Product, Category } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 function InventoryPage() {
   const { user } = useAuth();
+  const { t } = useT();
   const canManage = user?.role === "owner" || user?.role === "admin";
   const params = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
@@ -79,7 +81,7 @@ function InventoryPage() {
   const removeProduct = async (p: Product) => {
     try {
       await api.delete(`/products/${p.id}`);
-      toast.success("Product deleted");
+      toast.success(t("Deleted"));
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -89,8 +91,7 @@ function InventoryPage() {
   return (
     <div>
       <SectionHeader
-        title="Inventory"
-        subtitle={`${products.length} products`}
+        title={t("Products")}
         actions={
           canManage && (
             <>
@@ -98,7 +99,7 @@ function InventoryPage() {
                 icon={<Layers className="h-4 w-4" />}
                 onClick={() => setCatsOpen(true)}
               >
-                Categories
+                {t("Categories")}
               </Button>
               <Button
                 type="primary"
@@ -108,7 +109,7 @@ function InventoryPage() {
                   setFormOpen(true);
                 }}
               >
-                Add product
+                {t("Add product")}
               </Button>
             </>
           )
@@ -119,7 +120,7 @@ function InventoryPage() {
         <Input
           allowClear
           className="!w-64"
-          placeholder="Search name, barcode, SKU"
+          placeholder={t("Search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -128,7 +129,7 @@ function InventoryPage() {
           showSearch
           optionFilterProp="label"
           className="!w-44"
-          placeholder="All categories"
+          placeholder={t("All categories")}
           value={categoryId ?? undefined}
           onChange={(v) => setCategoryId(v ?? null)}
           options={categories.map((c) => ({ value: c.id, label: c.name }))}
@@ -141,8 +142,7 @@ function InventoryPage() {
           }}
         />
         <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-          <Switch size="small" checked={lowOnly} onChange={setLowOnly} /> Low
-          stock only
+          <Switch size="small" checked={lowOnly} onChange={setLowOnly} /> {t("Low stock")}
         </label>
       </div>
 

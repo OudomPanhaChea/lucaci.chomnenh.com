@@ -8,12 +8,15 @@ import { Mail, Phone, CalendarDays, Clock, KeyRound, UserRound, Camera, Pencil, 
 import api, { apiError } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
 import { SectionHeader } from "@/components/ui/section-header";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { useStatusLabel } from "@/components/ui/status-badge";
 import { fmtDate } from "@/lib/format";
 import type { User } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 export default function ProfilePage() {
   const { user, updateUser } = useAuth();
+  const { t } = useT();
+  const statusLabel = useStatusLabel();
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -28,7 +31,7 @@ export default function ProfilePage() {
       fd.append("avatar", file);
       const { data } = await api.post<{ user: User }>("/auth/avatar", fd);
       updateUser(data.user);
-      toast.success("Profile photo updated");
+      toast.success(t("Saved"));
     } catch (err) {
       toast.error(apiError(err));
     } finally {
@@ -40,7 +43,7 @@ export default function ProfilePage() {
     try {
       const { data } = await api.delete<{ user: User }>("/auth/avatar");
       updateUser(data.user);
-      toast.success("Profile photo removed");
+      toast.success(t("Removed"));
     } catch (err) {
       toast.error(apiError(err));
     }
@@ -55,7 +58,7 @@ export default function ProfilePage() {
     try {
       const { data } = await api.put<{ user: User }>("/auth/profile", values);
       updateUser(data.user);
-      toast.success("Profile updated");
+      toast.success(t("Saved"));
     } catch (err) {
       toast.error(apiError(err));
     } finally {
@@ -70,7 +73,7 @@ export default function ProfilePage() {
         current_password: values.current_password,
         new_password: values.new_password,
       });
-      toast.success("Password updated");
+      toast.success(t("Saved"));
       passwordForm.resetFields();
     } catch (err) {
       toast.error(apiError(err));
@@ -81,7 +84,7 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-4xl">
-      <SectionHeader title="My profile" subtitle="Your account details and password" />
+      <SectionHeader title={t("My profile")} />
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         {/* Identity card */}
@@ -99,7 +102,6 @@ export default function ProfilePage() {
                   busy={uploading}
                   aspect={1}
                   cropShape="round"
-                  cropTitle="Edit photo"
                   className="h-24 w-24"
                   rounded="rounded-full"
                   overlayLabel=""
@@ -114,7 +116,7 @@ export default function ProfilePage() {
             </div>
             <button
               type="button"
-              aria-label="Change profile photo"
+              aria-label={t("Change photo")}
               disabled={uploading}
               onClick={() => avatarRef.current?.browse()}
               className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-raised text-fg-muted shadow-card transition-colors duration-200 hover:text-fg disabled:opacity-60"
@@ -129,20 +131,18 @@ export default function ProfilePage() {
                 onClick={() => avatarRef.current?.editCurrent()}
                 className="cursor-pointer flex items-center gap-1 text-fg-subtle transition-colors duration-200 hover:text-fg-muted"
               >
-                <Pencil size={14} /> Edit
+                <Pencil size={14} /> {t("Edit")}
               </button>
               <span className="text-line-strong">·</span>
-              <Popconfirm title="Remove profile photo?" onConfirm={removeAvatar}>
+              <Popconfirm title={t("Remove photo?")} okText={t("Remove")} cancelText={t("Cancel")} onConfirm={removeAvatar}>
                 <button type="button" className="cursor-pointer flex items-center gap-1 text-xs text-fg-subtle transition-colors duration-200 hover:text-fg-muted">
-                  <Trash2 size={14} /> Remove
+                  <Trash2 size={14} /> {t("Remove")}
                 </button>
               </Popconfirm>
             </div>
           )}
           <p className="mt-3 text-lg font-semibold text-fg">{user?.name}</p>
-          <div className="mt-1.5">
-            <StatusBadge status={user?.role ?? "other"} />
-          </div>
+          <p className="text-sm text-fg-muted">{statusLabel(user?.role ?? "other")}</p>
 
           <dl className="mt-5 space-y-2.5 border-t border-line pt-4 text-left text-sm">
             <div className="flex items-center gap-2.5 text-fg-muted">
@@ -151,18 +151,18 @@ export default function ProfilePage() {
             </div>
             <div className="flex items-center gap-2.5 text-fg-muted">
               <Phone className="h-4 w-4 shrink-0 text-fg-subtle" />
-              <dd>{user?.phone || "No phone"}</dd>
+              <dd>{user?.phone || "—"}</dd>
             </div>
             {user?.created_at && (
               <div className="flex items-center gap-2.5 text-fg-muted">
                 <CalendarDays className="h-4 w-4 shrink-0 text-fg-subtle" />
-                <dd>Joined {fmtDate(user.created_at, "dd MMM yyyy")}</dd>
+                <dd>{t("Joined {date}", { date: fmtDate(user.created_at, "dd MMM yyyy") })}</dd>
               </div>
             )}
             {user?.last_login_at && (
               <div className="flex items-center gap-2.5 text-fg-muted">
                 <Clock className="h-4 w-4 shrink-0 text-fg-subtle" />
-                <dd>Last login {fmtDate(user.last_login_at)}</dd>
+                <dd>{t("Last login {date}", { date: fmtDate(user.last_login_at) })}</dd>
               </div>
             )}
           </dl>
@@ -172,22 +172,21 @@ export default function ProfilePage() {
           {/* Profile details */}
           <div className="rounded-xl border border-line bg-surface-raised p-5 shadow-card">
             <h2 className="mb-4 flex items-center gap-2 font-medium text-fg">
-              <UserRound className="h-4 w-4 text-fg-subtle" /> Profile details
+              <UserRound className="h-4 w-4 text-fg-subtle" /> {t("Details")}
             </h2>
             <Form form={profileForm} layout="vertical" onFinish={saveProfile} requiredMark={false}>
-              <Form.Item label="Name" name="name" rules={[{ required: true, message: "Name is required" }]}>
-                <Input placeholder="Your name" autoComplete="name" />
+              <Form.Item label={t("Name")} name="name" rules={[{ required: true, message: t("Enter a name") }]}>
+                <Input autoComplete="name" />
               </Form.Item>
-              <Form.Item label="Email" name="email"
-                rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
-                extra="You log in with this email">
-                <Input placeholder="you@example.com" autoComplete="email" />
+              <Form.Item label={t("Email")} name="email"
+                rules={[{ required: true, type: "email", message: t("Enter a valid email") }]}>
+                <Input type="email" autoComplete="email" />
               </Form.Item>
-              <Form.Item label="Phone" name="phone">
-                <Input placeholder="Phone (optional)" autoComplete="tel" />
+              <Form.Item label={t("Phone")} name="phone">
+                <Input inputMode="tel" autoComplete="tel" />
               </Form.Item>
               <Button type="primary" htmlType="submit" loading={savingProfile}>
-                Save changes
+                {t("Save")}
               </Button>
             </Form>
           </div>
@@ -195,30 +194,30 @@ export default function ProfilePage() {
           {/* Change password */}
           <div className="rounded-xl border border-line bg-surface-raised p-5 shadow-card">
             <h2 className="mb-4 flex items-center gap-2 font-medium text-fg">
-              <KeyRound className="h-4 w-4 text-fg-subtle" /> Change password
+              <KeyRound className="h-4 w-4 text-fg-subtle" /> {t("Password")}
             </h2>
             <Form form={passwordForm} layout="vertical" onFinish={savePassword} requiredMark={false}>
-              <Form.Item label="Current password" name="current_password" rules={[{ required: true, message: "Required" }]}>
+              <Form.Item label={t("Current password")} name="current_password" rules={[{ required: true, message: t("Required") }]}>
                 <Input.Password autoComplete="current-password" />
               </Form.Item>
-              <Form.Item label="New password" name="new_password"
-                rules={[{ required: true, min: 8, message: "At least 8 characters" }]}>
+              <Form.Item label={t("New password")} name="new_password"
+                rules={[{ required: true, min: 8, message: t("At least 8 characters") }]}>
                 <Input.Password autoComplete="new-password" />
               </Form.Item>
-              <Form.Item label="Confirm new password" name="confirm" dependencies={["new_password"]}
+              <Form.Item label={t("Confirm password")} name="confirm" dependencies={["new_password"]}
                 rules={[
-                  { required: true, message: "Required" },
+                  { required: true, message: t("Required") },
                   ({ getFieldValue }) => ({
                     validator: (_, v) =>
                       v && v !== getFieldValue("new_password")
-                        ? Promise.reject(new Error("Passwords do not match"))
+                        ? Promise.reject(new Error(t("Passwords do not match")))
                         : Promise.resolve(),
                   }),
                 ]}>
                 <Input.Password autoComplete="new-password" />
               </Form.Item>
               <Button type="primary" htmlType="submit" loading={savingPassword}>
-                Update password
+                {t("Change password")}
               </Button>
             </Form>
           </div>

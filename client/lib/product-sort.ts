@@ -1,5 +1,6 @@
 import type { Product } from "@/lib/types";
 import { unitPrice } from "@/lib/format";
+import type { TKey } from "@/lib/i18n";
 
 // Product grid/table ordering, picked in the sort menu and remembered per page
 // so the POS and inventory always come back the way the user left them.
@@ -11,13 +12,13 @@ export type ProductSortKey =
   | "price_desc"
   | "stock_asc";
 
-export const PRODUCT_SORTS: { key: ProductSortKey; label: string }[] = [
+export const PRODUCT_SORTS: { key: ProductSortKey; label: TKey }[] = [
   { key: "name_asc", label: "Name A to Z" },
   { key: "name_desc", label: "Name Z to A" },
-  { key: "price_asc", label: "Price low to high" },
-  { key: "price_desc", label: "Price high to low" },
-  { key: "stock_asc", label: "Stock low to high" },
-  { key: "newest", label: "Newest first" },
+  { key: "price_asc", label: "Lowest price" },
+  { key: "price_desc", label: "Highest price" },
+  { key: "stock_asc", label: "Lowest stock" },
+  { key: "newest", label: "Newest" },
 ];
 
 const keys = new Set(PRODUCT_SORTS.map((s) => s.key));

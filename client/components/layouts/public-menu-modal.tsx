@@ -6,12 +6,12 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Globe,
   EyeOff,
   Settings as SettingsIcon,
   ScanLine,
 } from "lucide-react";
 import Button from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 // Shown from the sidebar "Public menu" item. Instead of jumping straight to
 // the menu, it surfaces the shareable link (copy + QR to scan) and whether the
@@ -29,6 +29,7 @@ export default function PublicMenuModal({
   canEditSettings: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const { t } = useT();
   const [url, setUrl] = useState("/menu");
 
   // Build the absolute link on the client (the menu is same-origin), so a
@@ -70,12 +71,7 @@ export default function PublicMenuModal({
       width={440}
       footer={null}
       destroyOnHidden
-      title={
-        <span className="flex items-center gap-2">
-          <Globe className="h-4.5 w-4.5 text-brand dark:text-brand-soft-foreground" />
-          Public menu
-        </span>
-      }
+      title={t("Public menu")}
     >
       <div className="space-y-4 pt-1">
         {/* QR code to scan on the spot */}
@@ -89,7 +85,7 @@ export default function PublicMenuModal({
             />
           </div>
           <p className="flex items-center gap-1.5 text-xs text-fg-subtle">
-            <ScanLine className="h-3.5 w-3.5" /> Scan to open on a phone
+            <ScanLine className="h-3.5 w-3.5" /> {t("Scan to open")}
           </p>
         </div>
 
@@ -109,21 +105,20 @@ export default function PublicMenuModal({
                 <Copy className="h-4 w-4" />
               )
             }
-            className={copied ? "!border-emerald-300 !text-emerald-600" : ""}
           >
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("Copied") : t("Copy")}
           </Button>
         </div>
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-1">
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={onClose}>{t("Close")}</Button>
           <a href="/menu" target="_blank" rel="noopener noreferrer">
             <Button
               type="primary"
               icon={<ExternalLink className="h-4 w-4" />}
             >
-              Open menu
+              {t("Open")}
             </Button>
           </a>
         </div>
