@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import api, { apiError } from "@/services/api";
 import type { Category } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 interface CategorySelectProps {
   categories: Category[];
@@ -29,9 +30,10 @@ export function CategorySelect({
   value,
   onChange,
   id,
-  placeholder = "Select or type to add",
+  placeholder,
   className,
 }: CategorySelectProps) {
+  const { t } = useT();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -47,7 +49,7 @@ export function CategorySelect({
     setCreating(true);
     try {
       const { data } = await api.post("/categories", { name });
-      toast.success(`Category "${data.name}" added`);
+      toast.success(t("Added"));
       onCreated(data);
       onChange?.(data.id);
       setSearch("");
@@ -65,7 +67,7 @@ export function CategorySelect({
       showSearch
       allowClear
       className={className}
-      placeholder={placeholder}
+      placeholder={placeholder ?? t("Select or type to add")}
       value={value ?? undefined}
       onChange={(v) => {
         setSearch("");
@@ -82,7 +84,7 @@ export function CategorySelect({
       options={categories.map((c) => ({ value: c.id, label: c.name }))}
       notFoundContent={
         <p className="py-1 text-center text-xs text-fg-subtle">
-          No matching category
+          {t("Not found")}
         </p>
       }
       popupRender={(menu) => (
@@ -101,7 +103,7 @@ export function CategorySelect({
                 onClick={addCategory}
                 className="!justify-start"
               >
-                Add &quot;{name}&quot;
+                {t("Add")} &quot;{name}&quot;
               </Button>
             </>
           )}

@@ -17,11 +17,12 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useMounted } from "@/hooks/useMounted";
 import { useFullscreen, useStandalone } from "@/hooks/useFullscreen";
+import { useT } from "@/lib/i18n";
 
 const THEMES = [
-  { key: "light", icon: Sun, label: "Light theme" },
-  { key: "dark", icon: Moon, label: "Dark theme" },
-  { key: "system", icon: Monitor, label: "System theme" },
+  { key: "light", icon: Sun, label: "Light" },
+  { key: "dark", icon: Moon, label: "Dark" },
+  { key: "system", icon: Monitor, label: "Auto" },
 ] as const;
 
 // Touch targets stay at 44px: the staff run this on tablets.
@@ -66,6 +67,7 @@ export default function UserMenu() {
   } = useFullscreen();
   const standalone = useStandalone();
   const [open, setOpen] = useState(false);
+  const { t } = useT();
 
   // Same rule the standalone button used: hide where it would be a dead control.
   const showFullscreen = fullscreenSupported && !standalone;
@@ -89,7 +91,7 @@ export default function UserMenu() {
         className={`${ROW} text-fg-muted hover:bg-surface-sunken/50! hover:text-fg!`}
       >
         <UserRound className="h-4.5 w-4.5 shrink-0" />
-        <span>My profile</span>
+        <span>{t("My profile")}</span>
       </Link>
 
       {user?.role === "owner" && (
@@ -99,7 +101,7 @@ export default function UserMenu() {
           className={`${ROW} text-fg-muted hover:bg-surface-sunken/50! hover:text-fg!`}
         >
           <Settings className="h-4.5 w-4.5 shrink-0" />
-          <span>Settings</span>
+          <span>{t("Settings")}</span>
         </Link>
       )}
 
@@ -114,21 +116,21 @@ export default function UserMenu() {
           className={`${ROW} text-fg-muted hover:bg-surface-sunken/50! hover:text-fg!`}
         >
           <FullscreenIcon className="h-4.5 w-4.5 shrink-0" />
-          <span>{fullscreen ? "Exit fullscreen" : "Fullscreen"}</span>
+          <span>{fullscreen ? t("Exit fullscreen") : t("Fullscreen")}</span>
         </button>
       )}
 
       <div className="my-1 border-t border-line" />
 
       <div className="flex min-h-9 items-center justify-between gap-2 px-2.5">
-        <span className="text-sm text-fg-muted">Theme</span>
+        <span className="text-sm text-fg-muted">{t("Theme")}</span>
         {mounted ? (
           <div className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-sunken p-0.5">
             {THEMES.map(({ key, icon: Icon, label }) => (
               <button
                 key={key}
                 type="button"
-                aria-label={label}
+                aria-label={t(label)}
                 aria-pressed={theme === key}
                 onClick={() => setTheme(key)}
                 className={`flex h-6 w-8 cursor-pointer items-center justify-center rounded-md transition-colors duration-200 ${
@@ -157,7 +159,7 @@ export default function UserMenu() {
         className={`${ROW} text-rose-600 hover:bg-rose-50/70 dark:text-rose-400 dark:hover:bg-rose-500/15`}
       >
         <LogOut className="h-4.5 w-4.5 shrink-0" />
-        <span>Log out</span>
+        <span>{t("Log out")}</span>
       </button>
     </div>
   );
@@ -172,7 +174,7 @@ export default function UserMenu() {
     >
       <button
         type="button"
-        aria-label="Account menu"
+        aria-label={t("Account")}
         aria-haspopup="menu"
         aria-expanded={open}
         className={`flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-transparent py-5.5 pl-1 pr-1 transition-colors duration-200 hover:bg-surface-sunken sm:pr-2 ${
@@ -180,14 +182,9 @@ export default function UserMenu() {
         }`}
       >
         <Avatar url={user?.avatar_url} name={user?.name} size="md" />
-        <div className="hidden sm:flex flex-col">
-          <span className="max-w-32 truncate text-sm font-medium text-fg sm:block">
-            {user?.name}
-          </span>
-          <span className="w-fit inline-block rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium capitalize text-brand-soft-foreground">
-            {user?.role}
-          </span>
-        </div>
+        <span className="hidden max-w-32 truncate text-sm font-medium text-fg sm:block">
+          {user?.name}
+        </span>
         <ChevronDown
           className={`h-4 w-4 hidden sm:block shrink-0 text-fg-subtle transition-transform duration-200 ${
             open ? "rotate-180" : ""

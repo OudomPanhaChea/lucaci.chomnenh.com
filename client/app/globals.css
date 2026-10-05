@@ -29,8 +29,8 @@
   --shadow-card: 0 1px 2px 0 rgb(20 35 50 / 0.05), 0 1px 3px 0 rgb(20 35 50 / 0.07);
   --shadow-pop: 0 4px 16px -2px rgb(20 35 50 / 0.14);
 
-  --font-sans: var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-fira-code), ui-monospace, monospace;
+  --font-sans: var(--font-fira-sans), var(--font-kantumruy), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-fira-code), var(--font-kantumruy), ui-monospace, monospace;
 }
 
 :root {
@@ -94,7 +94,7 @@ body {
 :root {
   --toastify-color-light: var(--surface-raised);
   --toastify-text-color-light: var(--fg);
-  --toastify-font-family: var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif;
+  --toastify-font-family: var(--font-fira-sans), var(--font-kantumruy), ui-sans-serif, system-ui, sans-serif;
   --toastify-toast-bd-radius: 12px;
   --toastify-toast-min-height: 52px;
 }

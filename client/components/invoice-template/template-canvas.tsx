@@ -12,7 +12,10 @@ const TemplateCanvas = forwardRef<HTMLDivElement, {
   elements: TemplateElement[];
   data: InvoiceData;
   scale?: number;
-}>(function TemplateCanvas({ elements, data, scale = 1 }, ref) {
+  // Which line items this sheet carries, when the invoice spans several sheets
+  // (see invoice-sheets.tsx). Undefined = the whole list, the normal case.
+  itemRange?: { from: number; to: number };
+}>(function TemplateCanvas({ elements, data, scale = 1, itemRange }, ref) {
   return (
     <div
       style={{ width: CANVAS_W * scale, height: CANVAS_H * scale, overflow: "hidden" }}
@@ -36,7 +39,7 @@ const TemplateCanvas = forwardRef<HTMLDivElement, {
             key={el.id}
             style={{ position: "absolute", left: el.x, top: el.y, width: el.w, height: el.h }}
           >
-            <ElementView el={el} data={data} />
+            <ElementView el={el} data={data} itemRange={itemRange} />
           </div>
         ))}
       </div>

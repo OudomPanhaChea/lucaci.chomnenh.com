@@ -1,21 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Fira_Sans, Fira_Code } from "next/font/google";
+import { cookies } from "next/headers";
+import { fontVariables } from "./fonts";
 import { ToastContainer } from "react-toastify";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { AuthProvider } from "@/hooks/useAuth";
 import ServiceWorkerRegistrar from "@/components/pwa/service-worker";
+import { LanguageProvider } from "@/lib/i18n";
+import { LANG_COOKIE, parseLang } from "@/lib/i18n/config";
 import "./globals.css";
-
-const firaSans = Fira_Sans({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-fira-sans",
-});
-const firaCode = Fira_Code({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-fira-code",
-});
 
 // Force every page dynamic so responses go out with no-store cache headers.
 // Static prerender stamps s-maxage=31536000, which Hostinger's hCDN caches
@@ -77,14 +69,18 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Language is a per-device choice kept in a cookie so the server renders the
+  // right one on the first paint (no English flash before switching).
+  const lang = parseLang((await cookies()).get(LANG_COOKIE)?.value);
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={lang} suppressHydrationWarning>
       {/* suppressHydrationWarning: browser extensions inject attributes into <body> before React hydrates */}
       <body
         suppressHydrationWarning
-        className={`${firaSans.variable} ${firaCode.variable} font-sans antialiased`}
+        className={`${fontVariables} font-sans antialiased`}
       >
+        <LanguageProvider initialLang={lang}>
         <ThemeProvider>
           <ServiceWorkerRegistrar />
           <AuthProvider>{children}</AuthProvider>
@@ -104,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             theme="light"
           />
         </ThemeProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

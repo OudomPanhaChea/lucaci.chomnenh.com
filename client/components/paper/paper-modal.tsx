@@ -2,10 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "antd";
 import { Button } from "@/components/ui/button";
-import { ArrowDownToLine, ImageDown, Pencil } from "lucide-react";
+import { Pencil, Printer } from "lucide-react";
 import { toast } from "react-toastify";
+import { useT } from "@/lib/i18n";
 import api from "@/services/api";
 import type { Settings } from "@/lib/types";
+import { printSheets, renderSheets, saveJpgs, savePdf } from "@/lib/paper-export";
+import ExportMenu, { type ExportFormat } from "./export-menu";
 
 // Settings are needed on every paper (logo, business name, footer); fetched
 // once, the first time a paper is opened.
@@ -18,12 +21,11 @@ export function usePaperSettings(active: boolean) {
   return settings;
 }
 
-// Preview + download of an A4 paper. Each sheet ([data-paper-page] node,
-// papers may paginate onto several) is rendered to its own JPG with
-// html-to-image (foreignObject rendering, so Tailwind 4's oklch colors and
-// the self-hosted fonts survive; html2canvas chokes on both). Multi-page
-// papers download as name-p1.jpg, name-p2.jpg, ... or as one multi-page
-// PDF (jsPDF, one A4 page per sheet).
+// Preview + download/print of an A4 paper. Each sheet ([data-paper-page]
+// node, papers may paginate onto several) is rendered to its own image by
+// lib/paper-export, then saved as JPGs (name-p1.jpg, ...), as one multi-page
+// PDF, or sent straight to the print dialog. A paper with a spreadsheet
+// version passes onExcel and gets an Excel entry in the same Download menu.
 export default function PaperModal({
   open,
   title,
@@ -31,7 +33,8 @@ export default function PaperModal({
   onClose,
   canDownload = true,
   onEdit,
-  editLabel = "Edit",
+  editLabel,
+  onExcel,
   toolbar,
   width = 960,
   scrollMaxHeight,
@@ -44,68 +47,53 @@ export default function PaperModal({
   canDownload?: boolean;
   onEdit?: () => void; // when set, an Edit button appears in the footer
   editLabel?: string;
+  onExcel?: () => Promise<void>; // when set, Download offers Excel too
   toolbar?: React.ReactNode; // paper-specific options above the preview
   width?: number; // modal width (default 960)
   scrollMaxHeight?: string; // cap + scroll the preview area (e.g. "64vh")
   children: React.ReactNode;
 }) {
+  const { t } = useT();
   const paperRef = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState<"jpg" | "pdf" | null>(null);
+  const [busy, setBusy] = useState<ExportFormat | null>(null);
+  const [printing, setPrinting] = useState(false);
 
-  // Every sheet as a JPEG data URL, in page order
-  const renderSheets = async () => {
-    const { toJpeg } = await import("html-to-image");
-    const sheets = paperRef.current!.querySelectorAll<HTMLElement>("[data-paper-page]");
-    const targets = sheets.length > 0 ? Array.from(sheets) : [paperRef.current!];
-    const urls: string[] = [];
-    for (const target of targets) {
-      urls.push(await toJpeg(target, {
-        quality: 0.92,
-        pixelRatio: 2,
-        backgroundColor: "#ffffff",
-      }));
-    }
-    return urls;
-  };
-
-  const downloadJpg = async () => {
+  const download = async (format: ExportFormat) => {
     if (!paperRef.current) return;
-    setBusy("jpg");
+    setBusy(format);
     try {
-      const urls = await renderSheets();
-      urls.forEach((dataUrl, i) => {
-        const a = document.createElement("a");
-        a.download = urls.length > 1 ? filename.replace(/\.jpg$/i, `-p${i + 1}.jpg`) : filename;
-        a.href = dataUrl;
-        a.click();
-      });
-      if (urls.length > 1) {
-        toast.success(`Downloaded ${urls.length} pages`);
+      if (format === "excel") {
+        await onExcel?.();
+        toast.success(t("Downloaded"));
+        return;
+      }
+      const urls = await renderSheets(paperRef.current);
+      if (format === "pdf") {
+        await savePdf(urls, filename);
+      } else {
+        saveJpgs(urls, filename);
+        if (urls.length > 1) toast.success(t("Downloaded"));
       }
     } catch {
-      toast.error("Could not create the image, please try again");
+      toast.error(t("Download failed. Try again."));
     } finally {
       setBusy(null);
     }
   };
 
-  const downloadPdf = async () => {
+  const print = async () => {
     if (!paperRef.current) return;
-    setBusy("pdf");
+    setPrinting(true);
     try {
-      const [urls, { jsPDF }] = await Promise.all([renderSheets(), import("jspdf")]);
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      urls.forEach((dataUrl, i) => {
-        if (i > 0) pdf.addPage();
-        pdf.addImage(dataUrl, "JPEG", 0, 0, 210, 297);
-      });
-      pdf.save(filename.replace(/\.jpg$/i, ".pdf"));
+      await printSheets(await renderSheets(paperRef.current), title);
     } catch {
-      toast.error("Could not create the PDF, please try again");
+      toast.error(t("Print failed. Try again."));
     } finally {
-      setBusy(null);
+      setPrinting(false);
     }
   };
+
+  const working = busy !== null || printing;
 
   return (
     <Modal
@@ -117,29 +105,27 @@ export default function PaperModal({
       title={title}
       footer={
         <div className="flex flex-wrap justify-end gap-2">
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={onClose}>{t("Close")}</Button>
           {onEdit && (
-            <Button icon={<Pencil className="h-4 w-4" />} onClick={onEdit}>
-              {editLabel}
+            <Button icon={<Pencil className="h-4 w-4" />} onClick={onEdit} disabled={working}>
+              {editLabel ?? t("Edit")}
             </Button>
           )}
           <Button
-            icon={<ImageDown className="h-4 w-4" />}
-            loading={busy === "jpg"}
-            disabled={!canDownload || busy === "pdf"}
-            onClick={downloadJpg}
+            icon={<Printer className="h-4 w-4" />}
+            loading={printing}
+            disabled={!canDownload || busy !== null}
+            onClick={print}
           >
-            Download JPG
+            {t("Print")}
           </Button>
-          <Button
-            type="primary"
-            icon={<ArrowDownToLine className="h-4 w-4" />}
-            loading={busy === "pdf"}
-            disabled={!canDownload || busy === "jpg"}
-            onClick={downloadPdf}
-          >
-            Download PDF
-          </Button>
+          <ExportMenu
+            formats={onExcel ? ["pdf", "jpg", "excel"] : ["pdf", "jpg"]}
+            busy={busy}
+            placement="topRight"
+            disabled={!canDownload || printing}
+            onSelect={download}
+          />
         </div>
       }
     >

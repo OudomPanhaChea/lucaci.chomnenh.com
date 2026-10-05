@@ -1,19 +1,17 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { Popconfirm, Tag } from "antd";
+import { Popconfirm } from "antd";
 import { Button } from "@/components/ui/button";
 import {
   ChevronRight,
-  HandCoins,
   Pencil,
-  ReceiptText,
   Trash2,
   Trophy,
-  Wallet,
 } from "lucide-react";
 import { ClientAvatar } from "@/components/clients/client-avatar";
 import { money, num, fmtDate } from "@/lib/format";
 import type { Client } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 // One client as a card on the clients grid (same shape as the bonus page
 // cards). The whole card opens the client details page; edit/delete live in
@@ -32,6 +30,7 @@ export function ClientCard({
   onDelete: () => void;
 }) {
   const router = useRouter();
+  const { t } = useT();
   const owing = Number(c.outstanding ?? 0);
   const prepaid = Number(c.credit_balance ?? 0);
   const topRank = rank <= 3 && Number(c.total_spent ?? 0) > 0;
@@ -40,7 +39,7 @@ export function ClientCard({
     <div
       role="link"
       tabIndex={0}
-      aria-label={`Open ${c.name}`}
+      aria-label={c.name}
       onClick={() => router.push(`/admin/clients/${c.id}`)}
       onKeyDown={(e) => {
         if (e.key === "Enter" && e.target === e.currentTarget) {
@@ -55,13 +54,13 @@ export function ClientCard({
           <p className="flex items-center gap-2 font-semibold text-fg">
             <span className="truncate">{c.name}</span>
             {c.client_type === "partner" && (
-              <Tag color="blue" className="m-0!">
-                Partner
-              </Tag>
+              <span className="shrink-0 text-xs font-normal text-fg-subtle">
+                {t("Partner")}
+              </span>
             )}
           </p>
           <p className="truncate text-xs text-fg-muted">
-            {c.phone || c.email || `Client #${c.display_number}`}
+            {c.phone || c.email || `#${c.display_number}`}
           </p>
         </div>
         {topRank ? (
@@ -76,23 +75,19 @@ export function ClientCard({
 
       <div className="mt-3 grid grid-cols-3 gap-2">
         <div className="rounded-lg bg-surface-sunken px-2 py-2 text-center">
-          <p className="flex items-center justify-center gap-1 text-[11px] text-fg-subtle">
-            Purchases
-          </p>
+          <p className="text-[11px] text-fg-subtle">{t("Invoices")}</p>
           <p className="tabular mt-0.5 text-sm font-semibold text-fg">
             {num(c.purchase_count)}
           </p>
         </div>
         <div className="rounded-lg bg-surface-sunken px-2 py-2 text-center">
-          <p className="text-[11px] text-fg-subtle">Spent</p>
+          <p className="text-[11px] text-fg-subtle">{t("Spent")}</p>
           <p className="tabular mt-0.5 text-sm font-semibold text-fg">
             {money(c.total_spent)}
           </p>
         </div>
         <div className="rounded-lg bg-surface-sunken px-2 py-2 text-center">
-          <p className="flex items-center justify-center gap-1 text-[11px] text-fg-subtle">
-            Owing
-          </p>
+          <p className="text-[11px] text-fg-subtle">{t("Owing")}</p>
           <p
             className={`tabular mt-0.5 text-sm font-semibold ${
               owing > 0 ? "text-rose-600 dark:text-rose-400" : "text-fg-subtle"
@@ -106,14 +101,9 @@ export function ClientCard({
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2 text-xs">
         <span className="min-w-0 truncate text-fg-subtle flex items-center gap-4">
           {c.last_purchase_at
-            ? `Last: ${fmtDate(c.last_purchase_at, "dd MMM yyyy")}`
-            : "No purchases yet"}
-          {prepaid > 0 && (
-            <span className="mr-2 inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
-              <Wallet className="h-3.5 w-3.5" />
-              {money(prepaid)}
-            </span>
-          )}
+            ? t("Last: {date}", { date: fmtDate(c.last_purchase_at, "dd MMM yyyy") })
+            : t("No purchases yet")}
+          {prepaid > 0 && <span>{t("Prepaid")} {money(prepaid)}</span>}
         </span>
         <span
           className="flex shrink-0 gap-1"
@@ -122,21 +112,22 @@ export function ClientCard({
           <Button
             size="small"
             type="text"
-            aria-label={`Edit ${c.name}`}
+            aria-label={t("Edit")}
             icon={<Pencil className="h-4 w-4" />}
             onClick={onEdit}
           />
           {canDelete && (
             <Popconfirm
-              title={`Delete "${c.name}"?`}
-              description="Their invoices keep the name for history."
+              title={t("Delete {name}?", { name: c.name })}
+              okText={t("Delete")}
+              cancelText={t("Cancel")}
               onConfirm={onDelete}
             >
               <Button
                 size="small"
                 type="text"
                 danger
-                aria-label={`Delete ${c.name}`}
+                aria-label={t("Delete")}
                 icon={<Trash2 className="h-4 w-4" />}
               />
             </Popconfirm>

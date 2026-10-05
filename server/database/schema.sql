@@ -149,6 +149,10 @@ CREATE TABLE IF NOT EXISTS `sales` (
   `status`           ENUM('paid','partial','unpaid','voided') NOT NULL DEFAULT 'paid',
   `voided_at`        DATETIME      DEFAULT NULL,
   `voided_by`        VARCHAR(120)  DEFAULT NULL,
+  `edited_at`        DATETIME      DEFAULT NULL,             -- last in-place correction (items/totals rewritten, number kept)
+  `edited_by`        VARCHAR(120)  DEFAULT NULL,
+  `bonus_marked_at`  DATETIME      DEFAULT NULL,             -- flagged from the invoice modal for the partner's next bonus
+  `bonus_marked_by`  VARCHAR(120)  DEFAULT NULL,
   `note`             VARCHAR(500)  DEFAULT NULL,
   `invoice_template_id` INT(11)    DEFAULT NULL,             -- template this invoice prints with
   `invoice_layout`   LONGTEXT      DEFAULT NULL,             -- per-invoice edited elements snapshot (JSON), overrides template
@@ -194,7 +198,7 @@ CREATE TABLE IF NOT EXISTS `stock_movements` (
   `business_id` INT(11)     NOT NULL DEFAULT 1,
   `product_id`  INT(11)     NOT NULL,
   `change_qty`  INT(11)     NOT NULL,            -- negative = out (sale), positive = in (restock)
-  `reason`      ENUM('sale','void','restock','adjustment','initial') NOT NULL,
+  `reason`      ENUM('sale','void','edit','restock','adjustment','initial') NOT NULL,
   `sale_id`     INT(11)     DEFAULT NULL,
   `user_id`     INT(11)     DEFAULT NULL,
   `note`        VARCHAR(255) DEFAULT NULL,

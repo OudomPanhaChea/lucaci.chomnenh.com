@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { DatePicker, Tabs, Tag } from "antd";
+import { DatePicker, Tabs } from "antd";
 import { Button } from "@/components/ui/button";
-import dayjs, { Dayjs } from "dayjs";
+import { Dayjs } from "dayjs";
 import {
   ArrowLeft,
   BookPlus,
@@ -24,7 +24,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ClientAvatar } from "@/components/clients/client-avatar";
 import ClientFormModal from "@/components/clients/client-form-modal";
 import DepositModal from "@/components/clients/deposit-modal";
 import OwingModal from "@/components/clients/owing-modal";
@@ -38,6 +37,8 @@ import InvoiceDetailModal from "@/components/invoice-detail-modal";
 import BonusPaperModal from "@/components/bonus/bonus-paper-modal";
 import { money, num } from "@/lib/format";
 import type { Bonus, ClientStatement, Sale } from "@/lib/types";
+import { useT } from "@/lib/i18n";
+import { rangePresets } from "@/lib/range-presets";
 
 const { RangePicker } = DatePicker;
 
@@ -49,6 +50,7 @@ export default function ClientDetailsPage() {
   const params = useParams<{ id: string }>();
   const clientId = Number(params.id);
   const { user } = useAuth();
+  const { t } = useT();
   const isManager = user?.role === "owner" || user?.role === "admin";
 
   const [statement, setStatement] = useState<ClientStatement | null>(null);
@@ -107,10 +109,10 @@ export default function ClientDetailsPage() {
     return (
       <EmptyState
         icon={CircleAlert}
-        title="Client not found"
+        title={t("Client not found")}
         action={
           <Link href="/admin/clients">
-            <Button>Back to clients</Button>
+            <Button>{t("Back")}</Button>
           </Link>
         }
       />
@@ -129,13 +131,12 @@ export default function ClientDetailsPage() {
           href="/admin/clients"
           className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-fg-muted transition-colors duration-200 hover:text-fg"
         >
-          <ArrowLeft className="h-4 w-4" /> All clients
+          <ArrowLeft className="h-4 w-4" /> {t("Clients")}
         </Link>
       </div>
 
       <SectionHeader
         title={cl.name}
-        subtitle={cl.phone || cl.email || `Client #${cl.display_number}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* {cl.client_type === "partner" && <Tag color="blue" className="m-0!">Partner</Tag>} */}
@@ -143,14 +144,14 @@ export default function ClientDetailsPage() {
               icon={<Pencil className="h-4 w-4" />}
               onClick={() => setEditOpen(true)}
             >
-              Edit
+              {t("Edit")}
             </Button>
             {/* {isManager && ( */}
             <Button
               icon={<BookPlus className="h-4 w-4" />}
               onClick={() => setOwingMode("add")}
             >
-              Add owing
+              {t("Add owing")}
             </Button>
             {/* )} */}
             {oldOwing > 0 && (
@@ -158,7 +159,7 @@ export default function ClientDetailsPage() {
                 icon={<HandCoins className="h-4 w-4" />}
                 onClick={() => setOwingMode("pay")}
               >
-                Receive owing
+                {t("Receive owing")}
               </Button>
             )}
             <Button
@@ -166,7 +167,7 @@ export default function ClientDetailsPage() {
               icon={<Wallet className="h-4 w-4" />}
               onClick={() => setDepositOpen(true)}
             >
-              Add deposit
+              {t("Add prepaid")}
             </Button>
           </div>
         }
@@ -180,14 +181,8 @@ export default function ClientDetailsPage() {
         <aside className="space-y-4 xl:sticky xl:top-20">
           {/* Account position (all time) */}
           <div className="grid grid-cols-2 gap-3">
-            <div
-              className={`rounded-lg border p-3 ${
-                owingAll > 0
-                  ? "border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10"
-                  : "border-line bg-surface-raised"
-              }`}
-            >
-              <p className="text-xs text-fg-subtle">Owing (all time)</p>
+            <div className="rounded-lg border border-line bg-surface-raised p-3">
+              <p className="text-xs text-fg-subtle">{t("Owing")}</p>
               <p
                 className={`tabular text-xl font-semibold ${
                   owingAll > 0 ? "text-rose-600 dark:text-rose-400" : "text-fg"
@@ -195,15 +190,10 @@ export default function ClientDetailsPage() {
               >
                 {money(owingAll)}
               </p>
-              {owingAll === 0 && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                  Fully paid
-                </p>
-              )}
               {oldOwing > 0 && (
                 <>
                   <p className="tabular mt-0.5 text-xs text-fg-muted">
-                    incl. {money(oldOwing)} prev. owing
+                    {t("Incl. {amount} previous", { amount: money(oldOwing) })}
                   </p>
                   {/* <Button
                     block
@@ -217,68 +207,49 @@ export default function ClientDetailsPage() {
                 </>
               )}
             </div>
-            <div
-              className={`rounded-lg border p-3 ${
-                prepaid > 0
-                  ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10"
-                  : "border-line bg-surface-raised"
-              }`}
-            >
-              <p className="text-xs text-fg-subtle">Prepaid balance</p>
-              <p
-                className={`tabular text-xl font-semibold ${
-                  prepaid > 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-fg"
-                }`}
-              >
+            <div className="rounded-lg border border-line bg-surface-raised p-3">
+              <p className="text-xs text-fg-subtle">{t("Prepaid")}</p>
+              <p className="tabular text-xl font-semibold text-fg">
                 {money(prepaid)}
               </p>
             </div>
           </div>
 
+          {(cl.phone || cl.email || cl.id_card || cl.address || cl.note) && (
           <div className="rounded-xl border border-line bg-surface-raised p-4 shadow-card">
-            <div className="mb-3 flex items-center gap-3">
-              <ClientAvatar client={cl} size="lg" />
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-fg">{cl.name}</p>
-                <p className="text-xs text-fg-subtle">
-                  Client #{cl.display_number}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 rounded-xl bg-surface-sunken/50 p-3.5 text-sm sm:grid-cols-2 xl:grid-cols-1">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-1">
               <ContactItem
                 icon={<Phone className="h-4 w-4" />}
-                label="Phone"
+                label={t("Phone")}
                 value={cl.phone}
               />
               <ContactItem
                 icon={<Mail className="h-4 w-4" />}
-                label="Email"
+                label={t("Email")}
                 value={cl.email}
               />
               <ContactItem
                 icon={<IdCard className="h-4 w-4" />}
-                label="ID card"
+                label={t("ID card")}
                 value={cl.id_card}
               />
               <ContactItem
                 icon={<MapPin className="h-4 w-4" />}
-                label="Address"
+                label={t("Address")}
                 value={cl.address}
               />
               {cl.note && (
                 <div className="sm:col-span-2 xl:col-span-1">
                   <ContactItem
                     icon={<StickyNote className="h-4 w-4" />}
-                    label="Note"
+                    label={t("Note")}
                     value={cl.note}
                   />
                 </div>
               )}
             </div>
           </div>
+          )}
         </aside>
 
         {/* ── Period filter + summary + tabs ── */}
@@ -287,54 +258,38 @@ export default function ClientDetailsPage() {
             <RangePicker
               value={range}
               onChange={(v) => setRange(v as [Dayjs, Dayjs] | null)}
-              presets={[
-                { label: "Today", value: [dayjs(), dayjs()] },
-                {
-                  label: "This week",
-                  value: [dayjs().startOf("week"), dayjs()],
-                },
-                {
-                  label: "This month",
-                  value: [dayjs().startOf("month"), dayjs()],
-                },
-                {
-                  label: "This year",
-                  value: [dayjs().startOf("year"), dayjs()],
-                },
-              ]}
+              presets={rangePresets(t)}
+              placeholder={[t("All time"), t("All time")]}
             />
-            <span className="text-xs text-fg-subtle">
-              {range ? "Selected period" : "All time"}
-            </span>
           </div>
 
           <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-surface-sunken/50 p-3 text-center text-sm sm:grid-cols-5">
             <div>
-              <p className="text-xs text-fg-subtle">Invoices</p>
+              <p className="text-xs text-fg-subtle">{t("Invoices")}</p>
               <p className="tabular font-semibold text-fg">
                 {num(statement.period.invoice_count)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-fg-subtle">Total Items</p>
+              <p className="text-xs text-fg-subtle">{t("Items")}</p>
               <p className="tabular font-semibold text-fg">
                 {num(statement.period.total_items)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-fg-subtle">Purchased</p>
+              <p className="text-xs text-fg-subtle">{t("Bought")}</p>
               <p className="tabular font-semibold text-fg">
                 {money(statement.period.purchased)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-fg-subtle">Paid</p>
-              <p className="tabular font-semibold text-emerald-600 dark:text-emerald-400">
+              <p className="text-xs text-fg-subtle">{t("Paid")}</p>
+              <p className="tabular font-semibold text-fg">
                 {money(statement.period.paid)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-fg-subtle">Owing</p>
+              <p className="text-xs text-fg-subtle">{t("Owing")}</p>
               <p
                 className={`tabular font-semibold ${
                   statement.period.outstanding > 0
@@ -353,7 +308,7 @@ export default function ClientDetailsPage() {
             items={[
               {
                 key: "purchases",
-                label: `Purchase history (${num(statement.period.invoice_count)})`,
+                label: `${t("Invoices")} (${num(statement.period.invoice_count)})`,
                 children: (
                   <PurchaseHistory
                     sales={statement.sales}
@@ -373,7 +328,7 @@ export default function ClientDetailsPage() {
               },
               {
                 key: "products",
-                label: `Products (${num(statement.products.length)})`,
+                label: `${t("Products")} (${num(statement.products.length)})`,
                 children: (
                   <ProductsRank
                     products={statement.products}
@@ -384,7 +339,7 @@ export default function ClientDetailsPage() {
               },
               {
                 key: "payments",
-                label: `Payments and deposits (${num(statement.payments.length)})`,
+                label: `${t("Payments")} (${num(statement.payments.length)})`,
                 children: (
                   <PaymentsList
                     payments={statement.payments}
@@ -404,7 +359,7 @@ export default function ClientDetailsPage() {
                 ? [
                     {
                       key: "bonuses",
-                      label: `Bonuses (${num(statement.bonuses?.length ?? 0)})`,
+                      label: `${t("Bonus")} (${num(statement.bonuses?.length ?? 0)})`,
                       children: (
                         <BonusesList
                           bonuses={statement.bonuses ?? []}
@@ -447,21 +402,15 @@ export default function ClientDetailsPage() {
         onDone={load}
       />
 
-      {/* Close the invoice modal before opening the paper, or it stays
-          stacked on top of the invoice preview. A single invoice prints as a
-          template invoice (canvas), editable individually. */}
+      {/* Owns the single-invoice A4 paper (it closes itself first so the
+          paper never stacks under it), editing and bonus marking. */}
       <InvoiceDetailModal
         saleId={detailId}
         onClose={() => setDetailId(null)}
         onChanged={load}
-        onPaper={(id) => {
-          setDetailId(null);
-          setOwingOnlyIds([]);
-          setInvoiceIds([id]);
-        }}
       />
 
-      <BonusPaperModal bonus={paperBonus} onClose={() => setPaperBonus(null)} />
+      <BonusPaperModal bonus={paperBonus} client={cl} onClose={() => setPaperBonus(null)} />
 
       {/* Selected invoices print as template invoices, each editable individually.
           saleIds = [] prints an owing-only statement on the same canvas. */}
@@ -487,14 +436,13 @@ function ContactItem({
   label: string;
   value: string | null | undefined;
 }) {
+  if (!value) return null;
   return (
     <div className="flex items-start gap-2.5">
       <span className="mt-0.5 text-fg-subtle">{icon}</span>
       <div className="min-w-0">
         <p className="text-xs text-fg-subtle">{label}</p>
-        <p className={value ? "text-fg" : "text-fg-subtle"}>
-          {value || "Not set"}
-        </p>
+        <p className="break-words text-fg">{value}</p>
       </div>
     </div>
   );

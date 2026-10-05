@@ -7,6 +7,13 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const PAYMENT_METHODS = ["cash", "khqr", "card", "bank", "other"];
 const saleStatus = (paid, total) => (paid >= total ? "paid" : paid > 0 ? "partial" : "unpaid");
 
+// "Items" on an invoice = how many different products it lists (bought a, b
+// and c = 3 items), never the summed quantity: 10 pcs + 10 boxes of one
+// product is still ONE item, and adding pieces to boxes means nothing.
+export const ITEM_COUNT_SQL = (saleAlias) =>
+  `(SELECT COUNT(DISTINCT COALESCE(si.product_id, CONCAT('n:', si.name_snapshot)))
+      FROM sale_items si WHERE si.sale_id = ${saleAlias}.id)`;
+
 // Totals are always recomputed server-side from DB prices — the client's
 // displayed totals are never trusted. A sale may be paid in full, partially,
 // or not at all (on account); anything less than full requires a client, and
@@ -248,7 +255,7 @@ export async function listSales(req, res) {
     `SELECT COUNT(*) AS total FROM sales s WHERE ${where.join(" AND ")}`, params
   );
   const [rows] = await pool.query(
-    `SELECT s.*, (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
+    `SELECT s.*, ${ITEM_COUNT_SQL("s")} AS item_count
      FROM sales s WHERE ${where.join(" AND ")}
      ORDER BY s.id DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset]
@@ -260,6 +267,246 @@ export async function getSale(req, res) {
   const sale = await getSaleWithItems(req.params.id);
   if (!sale) return res.status(404).json({ message: "Invoice not found" });
   res.json(sale);
+}
+
+// ── Correct an invoice in place ────────────────────────────────────────────
+// A wrong invoice is REWRITTEN rather than voided: same row, same id, same
+// number. Everything the sale touches is brought back into agreement with it
+// in ONE transaction:
+//
+//   items   replaced outright by the corrected cart
+//   totals  recomputed from DB prices, exactly like createSale
+//   stock   moved by the DIFFERENCE between what the invoice now needs and what
+//           it already holds, logged as 'edit' movements, so the sale's
+//           movements always net to its current lines
+//   ledger  a settled invoice stays settled at the new total (the difference
+//           is taken or refunded); a part-paid one keeps what was paid, and
+//           only an amount that is now OVERpaid comes back
+//
+// Deliberately NOT changed: invoice number, date, client link, payment method,
+// tax rate and exchange rate (snapshots of the day it was issued).
+export async function updateSale(req, res) {
+  const id = req.params.id;
+  const { items, discount_pct = 0, note = undefined } = req.body || {};
+
+  if (!Array.isArray(items) || items.length === 0) {
+    // An invoice with no lines is not a correction, it is a void.
+    return res.status(400).json({ message: "An invoice must have at least one item" });
+  }
+  for (const it of items) {
+    if (!Number.isInteger(it?.quantity) || it.quantity < 1 || !it.product_id) {
+      return res.status(400).json({ message: "Invalid cart item" });
+    }
+    if (it.price !== undefined && it.price !== null &&
+        (Number.isNaN(Number(it.price)) || Number(it.price) < 0)) {
+      return res.status(400).json({ message: "Invalid line price" });
+    }
+  }
+  const saleDiscountPct = Math.min(Math.max(Number(discount_pct) || 0, 0), 100);
+
+  const conn = await pool.getConnection();
+  const fail = async (status, message) => {
+    await conn.rollback();
+    return res.status(status).json({ message });
+  };
+  try {
+    await conn.beginTransaction();
+
+    const [[sale]] = await conn.query(
+      "SELECT * FROM sales WHERE id = ? AND business_id = ? FOR UPDATE", [id, BUSINESS_ID]
+    );
+    if (!sale) return await fail(404, "Invoice not found");
+    if (sale.status === "voided") {
+      return await fail(400, "A voided invoice cannot be edited. Ring the sale up again instead.");
+    }
+    // Refunding part of a prepaid spend belongs to the client's account, not
+    // to this till. Refuse rather than guess at someone's prepaid balance.
+    const [[creditPaid]] = await conn.query(
+      "SELECT COUNT(*) AS n FROM payments WHERE sale_id = ? AND method = 'credit'", [id]
+    );
+    if (creditPaid.n > 0) {
+      return await fail(400, "This invoice was paid from prepaid balance. Void it and ring the sale up again.");
+    }
+
+    // What this invoice currently holds in stock per product: the net of its
+    // own movements (base pieces; untracked products never wrote one).
+    const [held] = await conn.query(
+      "SELECT product_id, SUM(-change_qty) AS pieces FROM stock_movements WHERE sale_id = ? AND business_id = ? GROUP BY product_id",
+      [id, BUSINESS_ID]
+    );
+    const heldPieces = new Map(held.map((h) => [h.product_id, Number(h.pieces)]));
+
+    // Lock every product the invoice touches, before and after. is_active is
+    // NOT required: a line already on the invoice must stay editable after its
+    // product is retired, or the invoice could never be corrected.
+    const ids = [...new Set([...items.map((i) => Number(i.product_id)), ...heldPieces.keys()])];
+    const [products] = await conn.query(
+      "SELECT * FROM products WHERE id IN (?) AND business_id = ? AND is_deleted = 0 FOR UPDATE",
+      [ids, BUSINESS_ID]
+    );
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const [unitDefs] = await conn.query(
+      "SELECT * FROM product_units WHERE business_id = ? AND product_id IN (?)",
+      [BUSINESS_ID, ids]
+    );
+    const unitById = new Map(unitDefs.map((u) => [u.id, u]));
+
+    let subtotal = 0;
+    let totalCost = 0;
+    const lineRows = [];
+    const needPieces = new Map(); // product_id -> pieces the corrected invoice needs
+    // Stock left per product, counting what this invoice already holds as
+    // available to it: a correction must not be blocked by its own stock.
+    const remaining = new Map(
+      products.map((p) => [
+        p.id,
+        p.stock_qty === null ? null : p.stock_qty + (heldPieces.get(p.id) ?? 0),
+      ])
+    );
+    for (const it of items) {
+      const p = byId.get(Number(it.product_id));
+      if (!p) return await fail(400, `Product #${it.product_id} is not available`);
+      let unit = null;
+      if (it.unit_id) {
+        unit = unitById.get(Number(it.unit_id));
+        if (!unit || unit.product_id !== p.id) return await fail(400, `Invalid unit for "${p.name}"`);
+      }
+      const factor = unit ? unit.factor : 1;
+      const pieces = it.quantity * factor;
+      if (remaining.get(p.id) !== null) {
+        if (remaining.get(p.id) < pieces) {
+          return await fail(409,
+            `Not enough stock for "${p.name}" (${remaining.get(p.id)} ${p.base_unit || "pcs"} left, needs ${pieces})`);
+        }
+        remaining.set(p.id, remaining.get(p.id) - pieces);
+        needPieces.set(p.id, (needPieces.get(p.id) ?? 0) + pieces);
+      }
+      const isBonus = !!it.is_bonus;
+      const listPrice = unit
+        ? round2(unit.sell_price)
+        : round2(p.sell_price * (1 - p.discount_pct / 100));
+      const fullPrice = unit ? round2(unit.sell_price) : round2(p.sell_price);
+      const price = isBonus
+        ? 0
+        : it.price !== undefined && it.price !== null ? round2(it.price) : listPrice;
+      const lineTotal = round2(price * it.quantity);
+      subtotal = round2(subtotal + lineTotal);
+      totalCost = round2(totalCost + p.cost_price * pieces);
+      lineRows.push([
+        p.id, p.name, unit ? unit.name : null, factor, price, fullPrice,
+        p.cost_price, unit ? 0 : p.discount_pct, it.quantity, lineTotal, isBonus ? 1 : 0,
+      ]);
+    }
+
+    // The tax rate stays the one the invoice was issued under.
+    const taxRate = Number(sale.tax_rate) || 0;
+    const discountAmount = round2(subtotal * (saleDiscountPct / 100));
+    const taxAmount = round2((subtotal - discountAmount) * (taxRate / 100));
+    const total = round2(subtotal - discountAmount + taxAmount);
+
+    // ── Money follows the bill ──
+    const paidBefore = round2(sale.amount_paid);
+    const wasSettled = paidBefore >= round2(sale.total);
+    const target = wasSettled ? total : Math.min(paidBefore, total);
+    const delta = round2(target - paidBefore);
+    // Nobody may be left owing on an invoice with no client to own the debt.
+    if (target < total && !sale.client_id) {
+      return await fail(400, "This invoice cannot be left with a balance owing");
+    }
+
+    // ── Stock: move only the difference ──
+    for (const pid of ids) {
+      const p = byId.get(pid);
+      if (!p || p.stock_qty === null) continue; // untracked: nothing to move
+      const diff = (needPieces.get(pid) ?? 0) - (heldPieces.get(pid) ?? 0);
+      if (diff === 0) continue;
+      await conn.query("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", [diff, pid]);
+      await conn.query(
+        "INSERT INTO stock_movements (business_id, product_id, change_qty, reason, sale_id, user_id) VALUES (?, ?, ?, 'edit', ?, ?)",
+        [BUSINESS_ID, pid, -diff, id, req.user.id]
+      );
+    }
+
+    // ── Items: replaced outright ──
+    await conn.query("DELETE FROM sale_items WHERE sale_id = ? AND business_id = ?", [id, BUSINESS_ID]);
+    await conn.query(
+      `INSERT INTO sale_items
+         (business_id, sale_id, product_id, name_snapshot, unit_name, unit_factor, price, full_price, cost_price, discount_pct, quantity, line_total, is_bonus)
+       VALUES ?`,
+      [lineRows.map((r) => [BUSINESS_ID, id, ...r])]
+    );
+
+    if (delta !== 0) {
+      await conn.query(
+        `INSERT INTO payments (business_id, client_id, sale_id, type, method, amount, user_id, received_by, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          BUSINESS_ID, sale.client_id || null, id,
+          delta > 0 ? "sale" : "refund", sale.payment_method, delta,
+          req.user.id, req.user.name,
+          delta > 0 ? "Invoice edited" : "Invoice edited, difference refunded",
+        ]
+      );
+    }
+
+    await conn.query(
+      `UPDATE sales SET
+         subtotal = ?, discount_pct = ?, discount_amount = ?, tax_amount = ?,
+         total = ?, total_cost = ?, amount_paid = ?, status = ?,
+         note = ?, edited_at = NOW(), edited_by = ?
+       WHERE id = ? AND business_id = ?`,
+      [
+        subtotal, saleDiscountPct, discountAmount, taxAmount,
+        total, totalCost, target, saleStatus(target, total),
+        note === undefined ? sale.note : (note ? String(note).slice(0, 500) : null),
+        req.user.name, id, BUSINESS_ID,
+      ]
+    );
+
+    await conn.commit();
+
+    const updated = await getSaleWithItems(id);
+    emitToAdmins("sale:updated", updated);
+    emitToAdmins("product:changed", { type: "stock" });
+    if (updated.client_id) emitToAdmins("client:changed", { type: "update", id: updated.client_id });
+    res.json(updated);
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// PUT /sales/:id/bonus-mark { marked } — flag a partner's invoice for their
+// next bonus (the bonus page pre-ticks marked invoices). Only a record: no
+// money moves. Saving a bonus that awards the invoice clears the flag.
+export async function markSaleForBonus(req, res) {
+  const marked = !!req.body?.marked;
+  const [[sale]] = await pool.query(
+    `SELECT s.id, s.status, s.client_id, c.client_type
+     FROM sales s LEFT JOIN clients c ON c.id = s.client_id
+     WHERE s.id = ? AND s.business_id = ?`,
+    [req.params.id, BUSINESS_ID]
+  );
+  if (!sale) return res.status(404).json({ message: "Invoice not found" });
+  if (marked) {
+    if (sale.status === "voided") {
+      return res.status(400).json({ message: "A voided invoice cannot earn a bonus" });
+    }
+    if (sale.client_type !== "partner") {
+      return res.status(400).json({ message: "Only a partner client's invoice can be marked for bonus" });
+    }
+  }
+  await pool.query(
+    marked
+      ? "UPDATE sales SET bonus_marked_at = NOW(), bonus_marked_by = ? WHERE id = ? AND business_id = ?"
+      : "UPDATE sales SET bonus_marked_at = NULL, bonus_marked_by = ? WHERE id = ? AND business_id = ?",
+    [marked ? req.user.name : null, sale.id, BUSINESS_ID]
+  );
+  const updated = await getSaleWithItems(sale.id);
+  emitToAdmins("sale:updated", updated);
+  res.json(updated);
 }
 
 // Void restores stock and keeps the invoice for the audit trail. Payments the
@@ -281,7 +528,10 @@ export async function voidSale(req, res) {
     // Restore exactly what the sale's movements took out (already in pieces;
     // untracked products wrote no movement, so nothing comes back for them).
     const [taken] = await conn.query(
-      "SELECT product_id, SUM(-change_qty) AS pieces FROM stock_movements WHERE sale_id = ? AND reason = 'sale' GROUP BY product_id",
+      // The NET of every movement, not just the 'sale' ones: an invoice that
+      // was corrected also carries 'edit' rows, and restoring only what it
+      // originally took would leave the difference permanently out of stock.
+      "SELECT product_id, SUM(-change_qty) AS pieces FROM stock_movements WHERE sale_id = ? GROUP BY product_id HAVING pieces <> 0",
       [id]
     );
     for (const it of taken) {
@@ -451,9 +701,12 @@ export async function receivePayment(req, res) {
 
 async function getSaleWithItems(id) {
   // client_opening_owing rides along so the invoice paper can print a
-  // "Previous owing" line (the client's remaining pre-system debt).
+  // "Previous owing" line (the client's remaining pre-system debt), and the
+  // client's phone + address feed the paper's Billed To contact block.
   const [[sale]] = await pool.query(
-    `SELECT s.*, c.opening_owing AS client_opening_owing
+    `SELECT s.*, c.opening_owing AS client_opening_owing,
+            c.phone AS client_phone, c.address AS client_address,
+            c.client_type AS client_type
      FROM sales s LEFT JOIN clients c ON c.id = s.client_id
      WHERE s.id = ? AND s.business_id = ?`,
     [id, BUSINESS_ID]

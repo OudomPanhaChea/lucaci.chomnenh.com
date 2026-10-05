@@ -6,11 +6,14 @@ import { toast } from "react-toastify";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { SectionHeader } from "@/components/ui/section-header";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { useStatusLabel } from "@/components/ui/status-badge";
 import { fmtDate } from "@/lib/format";
 import type { User } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 export default function StaffPage() {
+  const { t } = useT();
+  const statusLabel = useStatusLabel();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -41,10 +44,10 @@ export default function StaffPage() {
     try {
       if (editing) {
         await api.put(`/users/${editing.id}`, values);
-        toast.success("Staff updated");
+        toast.success(t("Saved"));
       } else {
         await api.post("/users", values);
-        toast.success("Staff account created");
+        toast.success(t("Added"));
       }
       setFormOpen(false);
       load();
@@ -58,11 +61,10 @@ export default function StaffPage() {
   return (
     <div>
       <SectionHeader
-        title="Staff"
-        subtitle="Accounts that can log in to this POS"
+        title={t("Staff")}
         actions={
           <Button type="primary" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-            Add staff
+            {t("Add staff")}
           </Button>
         }
       />
@@ -75,27 +77,27 @@ export default function StaffPage() {
           pagination={false}
           scroll={{ x: 700 }}
           columns={[
-            { title: "Name", dataIndex: "name", render: (v, u) => (
+            { title: t("Name"), dataIndex: "name", render: (v, u) => (
               <div>
                 <p className="font-medium text-fg">{v}</p>
                 <p className="text-xs text-fg-subtle">{u.email}</p>
               </div>
             ) },
-            { title: "Role", dataIndex: "role", width: 110,
-              render: (v) => <span className="capitalize text-fg-muted">{v}</span> },
-            { title: "Phone", dataIndex: "phone", width: 130, render: (v) => v || <span className="text-fg-subtle">None</span> },
-            { title: "Status", dataIndex: "is_active", width: 100,
-              render: (v) => <StatusBadge status={v ? "active" : "inactive"} /> },
-            { title: "Last login", dataIndex: "last_login_at", width: 160,
-              render: (v) => <span className="text-fg-muted">{v ? fmtDate(v) : "Never"}</span> },
+            { title: t("Role"), dataIndex: "role", width: 130,
+              render: (v) => <span className="text-fg-muted">{statusLabel(v)}</span> },
+            { title: t("Phone"), dataIndex: "phone", width: 130, render: (v) => v || <span className="text-fg-subtle">—</span> },
+            { title: t("Status"), dataIndex: "is_active", width: 100,
+              render: (v) => (v ? t("Active") : <span className="text-fg-subtle">{t("Inactive")}</span>) },
+            { title: t("Last login"), dataIndex: "last_login_at", width: 160,
+              render: (v) => <span className="text-fg-muted">{v ? fmtDate(v) : "—"}</span> },
             {
               title: "", key: "actions", width: 100, align: "right",
               render: (_, u) => (
                 <div className="flex justify-end gap-1">
                   <Button size="small" type="text" icon={<Pencil className="h-4 w-4" />} onClick={() => openEdit(u)} />
                   {u.role !== "owner" && (
-                    <Popconfirm title={`Delete ${u.name}?`} onConfirm={async () => {
-                      try { await api.delete(`/users/${u.id}`); toast.success("Staff deleted"); load(); }
+                    <Popconfirm title={t("Delete {name}?", { name: u.name })} okText={t("Delete")} cancelText={t("Cancel")} onConfirm={async () => {
+                      try { await api.delete(`/users/${u.id}`); toast.success(t("Deleted")); load(); }
                       catch (err) { toast.error(apiError(err)); }
                     }}>
                       <Button size="small" type="text" danger icon={<Trash2 className="h-4 w-4" />} />
@@ -109,33 +111,34 @@ export default function StaffPage() {
       </div>
 
       <Modal open={formOpen} onCancel={() => setFormOpen(false)} onOk={submit} confirmLoading={saving} centered
-        title={editing ? `Edit ${editing.name}` : "Add staff"} okText={editing ? "Save changes" : "Create account"}>
+        title={editing ? t("Edit staff") : t("Add staff")} okText={t("Save")} cancelText={t("Cancel")}>
         <Form form={form} layout="vertical" requiredMark={false} className="pt-2">
-          <Form.Item label="Name" name="name" rules={[{ required: true, message: "Name is required" }]}>
-            <Input placeholder="Full name" />
+          <Form.Item label={t("Name")} name="name" rules={[{ required: true, message: t("Enter a name") }]}>
+            <Input />
           </Form.Item>
           {!editing && (
-            <Form.Item label="Email" name="email" rules={[{ required: true, type: "email", message: "Valid email required" }]}>
-              <Input placeholder="Login email" />
+            <Form.Item label={t("Email")} name="email" rules={[{ required: true, type: "email", message: t("Enter a valid email") }]}>
+              <Input type="email" autoComplete="off" />
             </Form.Item>
           )}
-          <Form.Item label="Phone" name="phone">
-            <Input placeholder="Phone (optional)" />
+          <Form.Item label={t("Phone")} name="phone">
+            <Input inputMode="tel" />
           </Form.Item>
           {editing?.role !== "owner" && (
-            <Form.Item label="Role" name="role">
+            <Form.Item label={t("Role")} name="role">
               <Select options={[
-                { value: "admin", label: "Admin (manage products, reports, void invoices)" },
-                { value: "cashier", label: "Cashier (sell and view only)" },
+                { value: "admin", label: t("Manager") },
+                { value: "cashier", label: t("Cashier") },
               ]} />
             </Form.Item>
           )}
-          <Form.Item label={editing ? "New password (leave empty to keep current)" : "Password"} name="password"
-            rules={editing ? [] : [{ required: true, min: 8, message: "At least 8 characters" }]}>
-            <Input.Password placeholder="At least 8 characters" autoComplete="new-password" />
+          <Form.Item label={editing ? t("New password") : t("Password")} name="password"
+            extra={editing ? t("Leave empty to keep it.") : undefined}
+            rules={editing ? [] : [{ required: true, min: 8, message: t("At least 8 characters") }]}>
+            <Input.Password autoComplete="new-password" />
           </Form.Item>
           {editing && (
-            <Form.Item label="Active" name="is_active" valuePropName="checked">
+            <Form.Item label={t("Active")} name="is_active" valuePropName="checked">
               <Switch />
             </Form.Item>
           )}

@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-08-13 (cashiers can record owing; managers can edit/delete deposit and owing ledger rows)
+> Last updated: 2026-10-05 (pre-deploy test pass, migration rewrite, deployed)
 
 ## 1. What this project is
 
@@ -31,7 +31,8 @@ the business + settings rows). The app itself has no tenant-switching UI on purp
   (`app/icon.png`, `app/apple-icon.png`, `public/favicon.ico`, mark) with
   `node scripts/generate-icons.mjs` from `client/`.
 - **Currency:** USD primary, KHR (៛) secondary via `settings.exchange_rate` (default 4100).
-- **Language:** English only for now (unlike WisePOS there are no `_km` columns / i18n).
+- **Language:** UI in English and Khmer (per-device switch, see section 4 "i18n"). Data has
+  no `_km` columns; printed invoice papers keep their own template captions.
 
 ### Stack (same family as WisePOS)
 | Layer | Tech |
@@ -131,6 +132,23 @@ Key conventions carried over from WisePOS:
   `EmptyState`, `Spinner`/`PageSpinner`, `ImageDropzone` (drag-and-drop upload with
   crop/zoom/rotate editor; use it for every image upload). Reuse them, don't re-implement.
 - Icons: lucide-react only, no emojis. All clickable elements get `cursor-pointer`.
+- **i18n (EN/KM)**: every user-facing string goes through `t("English text")` from
+  `useT()` (`lib/i18n/index.tsx`); the English text IS the key and `lib/i18n/km.ts` maps it
+  to Khmer. Keys are typed from `km`, so a new string without a Khmer entry fails `tsc`.
+  `{name}` placeholders: `t("Owes {amount}", { amount })`. Outside React (services, toasts
+  in `useCallback([])`) use the module `t` (`import { t as tNow }`). Data-list labels use
+  the loose `tl(text)`. Server messages are translated in `apiError` via `serverMessages`
+  / `serverPatterns` in km.ts (add new fixed server messages there). Language = cookie
+  `chomnenh_lang`, read by `app/layout.tsx` so SSR renders it (no English flash); also
+  drives antd `km_KH`, dayjs `km`, and `fmtDate` (date-fns `km`). Switch: admin header (left of the account button; removed from the user menu so it lives in one place),
+  login page, public menu (`components/language-switch.tsx`). Khmer glyphs render in
+  Kantumruy Pro (fallback in `--font-sans`/`--font-mono`). Shared helpers:
+  `useStatusLabel()` / `useMethodOptions()` (status-badge.tsx), `rangePresets(t)`
+  (`lib/range-presets.ts`, the one preset list for every RangePicker).
+- **Wording style (owner, 2026-10-05)**: short plain words, no explanatory subtitles,
+  hints or descriptions under titles/empty states; color only where it carries meaning
+  (owing/unpaid red, partial amber, paid green, low/out stock); payment methods, roles and
+  active/inactive render as plain text, not colored badges. StatCard accents are all neutral.
 - Auth: `hooks/useAuth.tsx` context; admin routes guarded by `app/admin/layout.tsx`.
 - Hydration gates: `hooks/useMounted.ts` (useSyncExternalStore, not setState-in-effect).
 - Design system reference: `design-system/chamnenh/MASTER.md` (user's brand colors override
@@ -1478,6 +1496,243 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   passes. **antd 6 gotcha: the modal root is `.ant-modal`, not `.ant-modal-content`**
   (waiting on the old selector times out even though the modal is open).
 
+### Done (2026-10-05): invoice template engine + Settings page synced with nc-tax
+- Owner asked for lucaci's Settings page and invoice template to be EXACTLY nc-tax's
+  (`E:\RCX\nc-tax.chomnenh.com`, which had moved far ahead since the 2026-07-24 port).
+  Copied verbatim from nc-tax: `components/invoice-template/` (types, totals-rows,
+  element-view, template-canvas, editable-element, element-properties, element-toolbar,
+  group-properties, preview-controls, template-clipboard, template-editor[-modal],
+  template-manager, use-drag-resize, presets, invoice-sheets), `components/paper/
+  paper-modal.tsx` + `export-menu.tsx`, `lib/paper-export.ts`, `lib/invoice-fonts.ts`,
+  `lib/invoice-date.ts`, `app/fonts.ts` (layout.tsx now uses `fontVariables`). Read the
+  nc-tax CLAUDE.md entries 2026-07-27 → 2026-09-17 for the WHY of each piece: WYSIWYG
+  totals rows (11 keys, no conditional visibility, Grand Total is GROSS, amount_due =
+  balance), fonts (9 self-hosted families), inline captions, date PATTERNS
+  (`#day #month #year`), Photo element, two-line column headings + heading-row style,
+  group select/marquee, copy/paste across sites, dirty-close confirm, editor Preview
+  knobs, real A4 pagination (`invoice-sheets.tsx` REPLACED lucaci's
+  `paginated-invoice.tsx`, deleted), and Print + one Download menu on every paper.
+- **Skipped on purpose (owner's choice)**: nc-tax's "Invoice numbering" Settings card
+  (yearly reset + password-gated start number). It requires nc-tax's `YYYY-NNNNNN`
+  numbering + 3 migrations; lucaci keeps `INV-YYYYMMDD-NNNN`. Also not ported: the
+  invoices-page bulk export (`invoice-batch-export.tsx`; `elementsForSale` lives inside
+  `invoice-paper-modal.tsx` instead) and nc-tax's POS changes.
+- **lucaci-only behaviour kept on top of nc-tax's code**: `combineInvoiceData(sales,
+  settings, oldOwing, owingOnlyIds)` keeps the 2026-07-26 "បុងចាស់" rule (ticked invoices
+  leave the item list and their balance joins Previous Owing; one itemized invoice left
+  prints as a single invoice); the owing-only paper (`saleIds = []`, synthetic invoice,
+  modal titled "Owing statement"); previous owing read from the sale join when no client
+  prop (invoices page); `ItemsTable` returns null for zero items (no headings-only shell).
+  `withOwingRows` turns Previous Owing + Grand Total on whenever a paper carries owing,
+  including carried invoices.
+- Server: `POST /invoice-templates/image` (owner, `uploadBranding`, declared before
+  `/:id`) for the Photo element; `getSaleWithItems` also joins `clients.phone/address`
+  AS `client_phone/client_address` so the Billed To block can print them (lucaci has no
+  per-sale customer snapshot). No migration. `Sale` type gained `client_phone`,
+  `client_address`, `issue_date` (never set in lucaci; the paper falls back to created_at).
+- `lib/format.ts` gained `khrAmount` (exact riel, used by the template) and
+  `capitalizeName` (names print capitalized on the INVOICE paper only). `khr()` itself
+  still rounds to 100៛ on screens (2026-07-20 rule unchanged), so a paper's riel figure
+  is the exact rate product while screens show the rounded one.
+- **Visible change on EXISTING invoices** (nc-tax behaviour, by design, templates are
+  never rewritten): the saved "Modern" template now prints the default totals list
+  (Subtotal / Discount / Total / Paid / Balance Due / Balance Due KHR, overflowing its
+  120px box, no collision on that template) and dates as `Day 23 Month 7 Year 2026`
+  (nc-tax's default pattern) instead of `2026-07-23`. Both are one edit each in Settings
+  → Invoice template (row switches; field Date format). The client phone/address only
+  print once those two fields are added to the template (built-in presets have them).
+- Deploy: `npm run build` downloads 7 more Google font families (build host needs
+  fonts.googleapis.com); API needs redeploy for the upload route + join; purge hCDN.
+- Verified headless per the verify skill (scratchpad `verify-port.js`): photo upload
+  201 → `/uploads/img/:id`, sale carries client_phone, no numbering card, editor toolbar
+  (Text/Field/Logo/Photo/QR/Items/Totals/Line, copy/paste, Preview, zoom), totals panel
+  "6 of 11 printing" + Font control (screenshot), untouched Cancel closes silently,
+  combined 5-invoice paper with one carried = 2 exact A4 sheets, separators
+  `number · date`, Grand Total = invoices + $500 owing cross-checked against the API,
+  footer Close / Print / Download, owing-only paper prints $500 with no items table,
+  clean console. `tsc` + `next build` pass. API on 5001 was AGAIN plain `node` (stale);
+  restarted under nodemon.
+
+### Done (2026-10-05, batch 2): bonus pages reworked + bonus paper through the invoice templates
+- **Period filter is optional everywhere, default = all time** (owner). GET
+  `/bonuses/clients` and `/bonuses/clients/:id` take from/to only when both are sent
+  (`periodFilter` in bonuses.controller; malformed = 400). The list RangePicker is
+  clearable with "All time" placeholders, plus a Bought / Not rewarded Segmented and a
+  "Clear filters" link. Shared presets/params in `components/bonus/period.ts`.
+- **Tried and REMOVED the same day (owner): "Old purchases"** (manual reward lines for
+  clients from before the system) and a "New partner" button on the bonus page. Do not
+  re-add either without asking. A client with no invoices gets an empty state on the
+  detail page and cannot be rewarded.
+- **Bonuses now cover every NON-VOIDED invoice** (paid, partial AND unpaid; owner's
+  call, reversing the 2026-07-14 "fully paid only" rule). All bonus queries use
+  `status <> 'voided'`; the list endpoint's fields were renamed `invoice_count` /
+  `invoice_total` / `last_invoice_at` (were `paid_*`), detail `period.invoice_total`,
+  and detail invoices carry `status` + `amount_paid`. Partial/unpaid rows show a
+  StatusBadge (also on the per-product invoice headers; paid rows show none), and the
+  summary warns "n of these invoices is not fully paid yet" before saving. Voided
+  invoices are excluded everywhere and rejected on save.
+- `createBonus`: invoices must be non-voided + belong to the client; the period check was
+  dropped (no period is sent; the list may be all time). **Stored period_from/to = the
+  span of the awarded invoices.** The page only sends invoices that earn something (all
+  selected if the invoice-total reward is used, else the ones with rewarded product
+  lines). `rewardValue()` validates both levels. Error rollbacks use
+  `return await fail(...)`: a bare `return promise` inside try/finally releases the
+  connection before the rollback finishes.
+- Detail page rebuilt clean: client header (avatar, contact, period picker, 4 stat cells
+  incl. bonus given), then 3 numbered cards. **1 Select invoices** (nothing pre-ticked,
+  owner rule; "Rewarded before" tag from history invoice numbers replaces the old
+  period-overlap warning). **2 Set the reward**: both kinds visible together, no tabs and
+  no on/off switches, an empty one is skipped: "On the invoice total" (one % or $ input
+  with a live result) and "Per product" (one % for all ticked; the old "tick if qty ≥ N" quick-tick
+  was removed by the owner, do not re-add;
+  per-line reward controls appear only once a line is ticked; per-invoice group shows its
+  reward subtotal). **3 Review and save** (sticky on xl; a sticky save bar below xl).
+  History rows show the `BON-0000` ref (`bonusRef`).
+- **The bonus paper prints through the invoice templates** (Settings → Invoice
+  template) instead of its own hand-built layout (`components/bonus/bonus-paper.tsx`
+  deleted). `components/bonus/bonus-data.ts`: `resolveBonusData` maps an award onto
+  `InvoiceData` (one item row per rewarded product under an invoice-number group row,
+  Basis column "$900.00 × 20%" or "Fixed", plus an "Invoice total" group row; totals via
+  `buildTotals` with paid 0), and `bonusElements` re-words the template FOR THAT PRINT
+  ONLY: a text element reading exactly "INVOICE" becomes "BONUS", field captions still at
+  their English default become bonus words (Billed To → Awarded To, Invoice Number →
+  Bonus No., Date of Issue → Date, money captions → Total Bonus (USD/KHR)), the due-date
+  field is dropped, item headings Rate/Line Total become Basis/Bonus, and the totals block
+  prints only Total Bonus + Total Bonus (KHR). Captions the owner typed themselves (Khmer,
+  a bonus-specific template) never match the defaults and print as designed. The modal
+  has a **template picker**; it defaults to a template whose name contains "bonus" /
+  "រង្វាន់", else the default template. Used by the bonus page and the client details
+  Bonuses tab (both pass the client for phone/address).
+- Verified headless per the verify skill (scratchpad `verify-bonus-v4.js`, 24/24):
+  all-time default, no New partner / old-purchase wording, empty state for an invoice-less
+  client, POST without invoices = 400, invoice 10% + product 20% = $304.00 matches the
+  server, paper is one 794x1123 sheet titled BONUS with Awarded To / Bonus No. / no Due
+  Date / no Balance Due, picker shown, client-page Paper renders through the template,
+  0px overflow at 390. Fixtures self-clean. `next build` passes. API needs redeploy.
+
+### Done (2026-10-05, batch 3): invoice modal = nc-tax's, edit invoices, mark for bonus, item counts
+- **Migration `2026-10-05-invoice-edit-and-bonus-mark.sql`** (applied locally, re-runnable;
+  **run on prod BEFORE deploying the API**): `sales.edited_at/edited_by`,
+  `sales.bonus_marked_at/bonus_marked_by`, `stock_movements.reason` gains `'edit'`.
+  `reset-transactions.sql` now also reverses/deletes `'edit'` movements.
+- **Invoice modal** follows nc-tax's: it owns `InvoicePaperModal` itself (footer
+  Close / Edit / **Invoice**; the `onPaper` prop and the parents' single-invoice paper
+  plumbing are gone), meta shows client phone/address, receipt button stays hidden.
+- **Edit an issued invoice in place** (ported from nc-tax 12d4f9b, adapted): Edit
+  (manager) → `startInvoiceEdit` parks it in the POS's own `"edit"` cart slot
+  (`chomnenh:pos-edit:v1`; the in-progress sale in `"cart"` is untouched) → POS shows
+  an "Editing invoice" banner, the client Select is locked (the client link never
+  changes), Charge becomes "Save invoice N" → `PUT /sales/:id` (manager) rewrites
+  items + totals, moves stock by the DIFFERENCE (`'edit'` movements, own held stock
+  counts as available), settled invoices stay settled (difference collected/refunded
+  as a ledger row with the sale's method), part-paid keep what was paid. Number, date,
+  client, payment method, tax and exchange rate never change. Refused: voided, and
+  invoices paid from prepaid credit (the modal says so before opening the POS).
+  `voidSale` now restores the NET of all the sale's movements (was `'sale'` only).
+- **Mark for bonus**: a small footer toggle (Gift icon, "Mark" / pressed "Marked", tooltip
+  says who/when) that REPLACES the Close button (owner's call; the header X still closes;
+  Close comes back when the mark doesn't apply). Manager, partner client, not voided →
+  `PUT /sales/:id/bonus-mark {marked}`. Bonus detail sorts marked invoices first,
+  tags them "Marked", PRE-TICKS them once per page/period load (explicit user intent,
+  so it does not break the "nothing auto-selected" rule) + "Select only marked";
+  partner cards show "n invoices marked for bonus"; saving a bonus clears the marks
+  on the invoices it awards.
+- **Items = different products, never summed qty** (owner rule): invoices list
+  `item_count`, client `total_items` (list + statement period), reports + dashboard
+  `items_sold`, bonus cards/detail `qty` all use
+  `COUNT(DISTINCT COALESCE(product_id, 'n:'+name_snapshot))` (`ITEM_COUNT_SQL` in
+  sales.controller). POS cart badge + "Cart restored (n items)" count products; a
+  product card in the cart with mixed units shows a tick (title lists "10 pcs + 10
+  box") instead of adding pcs to boxes.
+- Verified: API suite 24/24 (scratchpad `smoke-edit.mjs`: edit keeps number, stock
+  delta + movements net, over-stock 409 counting own stock, settled/refund ledger
+  rows, mark/unmark, award clears mark, walk-in mark 400, void-after-edit restores
+  net) + headless UI 20/20 (`verify-edit-ui.js`: Items column 2 → 1 after edit, mark
+  strip, Invoice paper, POS edit banner/Save, edit slot cleared, bonus page tick +
+  tag, 0px overflow at 390). `next build` passes.
+
+### Done (2026-10-05, batch 4): simpler wording + Khmer/English localization
+- Owner asked for short, plain wording everywhere with no unnecessary descriptions,
+  colors or badges, then a Khmer/English switch. Done in one pass per file: every string
+  was simplified AND wrapped in `t()` (conventions in section 4). ~450 UI entries + ~85
+  server messages in `lib/i18n/km.ts`.
+- Notable wording changes: sidebar "Sell (POS)" → Sell, "Inventory" → Products; the
+  invoice status `voided` displays as **Refunded** (matches the Refund button); role
+  `admin` displays as **Manager**; "Add deposit" → Add prepaid; "Partner bonus" → Bonus;
+  "Revenue" → Sales, "Collected" → Received; page subtitles, empty-state descriptions,
+  form placeholders that repeated the label, and explanatory notes were removed. The POS
+  "{amount} will be recorded as owing" note was dropped (the summary shows it); the
+  "Choose a client to sell on credit" warning stays (it explains the disabled Confirm).
+  Sidebar category headings were kept (owner asked to keep them), now translated.
+- Color/badge cuts: StatCard accents all neutral; StatusBadge colors only
+  paid/partial/unpaid/low/out (rest neutral); payment method/role/active columns are plain
+  text; client card partner tag, prepaid wallet chip, bonus "Marked"/"Rewarded before"
+  pills, POS "Partner sale" banner label, invoice FREE pill and cart count pill toned down.
+- **Invoice-template engine now diverges from nc-tax in UI strings** (every editor label
+  goes through `t()`). Printed paper content (template captions, bonus-paper rewording in
+  `bonus-data.ts`, "Page x of y") stays English/owner-defined on purpose. A future re-sync
+  from nc-tax must re-apply the `t()` wrapping.
+- Dead code left untouched: `components/clients/statement-paper[-modal].tsx` (no importers).
+- Verified headless per the verify skill (scratchpad `verify-i18n.js`, 23/23): login in
+  English, switch to ខ្មែរ from the user menu flips the sidebar + `html[lang]`, survives a
+  reload (cookie SSR), all 9 admin pages + client details + invoice modal + POS payment
+  modal render Khmer, a wrong-password server error toasts in Khmer, 0px overflow at
+  390px on POS/clients/settings/dashboard in Khmer, switching back to EN works, no
+  console errors. Screenshots eyeballed. `tsc` + `next build` pass. Client-only change
+  (no migration, no API change).
+
+### Done (2026-10-05, batch 5): bonus on items picked in the POS (new default tab)
+- Bonus detail page (`/admin/bonus/[id]`) now has two tabs: **Items** (default) and
+  **Invoices** (the previous flow, unchanged; period picker + stats moved inside it).
+  Tab in the URL (`?tab=invoices`; Items drops the param). Client name/contact and
+  History stay above/below both tabs.
+- **Items flow** (`components/bonus/picked-items-bonus.tsx`): "Pick in POS" opens the POS
+  in **pick mode**; the user taps products, sets unit/qty/price, presses Confirm and lands
+  back with the list; then rewards it exactly like invoices (% or $ on the total and/or
+  per product, bulk % on ticked) and saves. The items are ONLY the basis to reward
+  (owner: "not related to invoices and money"): no sale, no stock, no payment.
+- Storage (`lib/pos-cart.ts`): third cart slot `"pick"` (`chomnenh:pos-pick:v1`, holds the
+  POS draft + `BonusPick {client_id, client_name, return_to}`) and a per-client confirmed
+  list `chomnenh:bonus-pick:v1:<clientId>` (`readPicked`/`writePicked`/`startBonusPick`).
+  Confirm copies the draft into the list, Cancel just drops the draft, so leaving the POS
+  never changes the bonus page. The list is per browser until saved (cleared on save).
+- POS pick mode: banner "Bonus items for {client}" + Cancel, no stock checks/clamps
+  (out-of-stock cards selectable), no tax/discount/free toggle/client picker/credit hint/
+  receipt, bottom button = Confirm. Partner client still gets partner pricing.
+- Server: `POST /bonuses` with `lines: [{product_id, unit_id?, quantity, price}]` routes to
+  `createPickedBonus` (bonuses.controller): resolves names/units, merges lines per product
+  (`composeQtyDesc` → "2 Box of 12 + 5 pcs"), recomputes every amount, `items` reference
+  `product_id`. Stored with `invoice_count = 0`, `invoice_numbers = '[]'`, period = today
+  (that is what marks a picked-items award), bonus_items `sale_id NULL`, `invoice_number ''`.
+  No migration. History rows / client Bonuses tab show "Picked items" and a single date;
+  the paper's total row reads "Items total" instead of "0 invoices".
+- Shared reward UI moved to `components/bonus/reward-parts.tsx` (Section, RewardInput,
+  Amount, rewardAmount, ItemSel); the invoices flow imports it.
+- Verified: API smoke 17/17 (scratchpad `smoke-picked.mjs`: rejects empty/zero-qty/foreign
+  unit/unpicked reward/no reward; 10% of $150 + 20% of $120 + $2 = $41; merged product
+  line; stock and sale count untouched; cleanup) + headless UI 22/22
+  (`verify-picked-ui.js`: Items default, tab URL, Cancel keeps list empty, pick two
+  products with a price change, summary $7.90 = saved total, paper prints product +
+  "Items total", history "Picked items", POS back to normal, 0px overflow at 390).
+  `tsc` + `next build` pass. API needs redeploy.
+
+### Done (2026-10-05, batch 6): pre-deploy test pass + deployed
+- Full pass before deploying batches 1-5: `tsc`, `next build`, server `node --check`,
+  an API suite (79/79: sale/edit/void stock + ledger math, mark, both bonus kinds,
+  ledger edits, role gates), headless flows (POS sale → mark → edit at POS → paper →
+  bonus pre-tick → pick mode → bonus paper) on dev AND `next start`, and an EN/KM ×
+  desktop/390px sweep of all 14 pages (no page errors, no overflow). 8 user-reachable
+  server messages + 3 reward-validation patterns gained Khmer entries in km.ts.
+- **Migration gotcha (prod)**: the first version of `2026-10-05-invoice-edit-and-bonus-mark.sql`
+  checked `information_schema` via `DATABASE()` + `PREPARE`; Hostinger's phpMyAdmin
+  import ran it with information_schema as the current DB → `#1044 access denied`.
+  Rewritten as plain `ADD COLUMN IF NOT EXISTS` (MariaDB) like every other migration.
+  **Never use DATABASE()/PREPARE in migrations; select the app DB in phpMyAdmin first.**
+- Known, not fixed (pre-existing): no client-side role guard, so a cashier can open
+  manager pages by URL (server 403s the data); deleting a client leaves its
+  deposit/owing payments rows with `client_id` NULL. Dev server only: an occasional
+  document 500 that never reproduced on `next start`.
+
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
   unverified on a real iPad. If iOS install ever misbehaves, move it to an
@@ -1487,7 +1742,6 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   but scope the manifest link to /admin if it ever confuses anyone.
 - No iOS splash screens (`apple-touch-startup-image`): ~20 sized PNGs for a brief
   launch flash. Skipped on purpose.
-- Khmer i18n intentionally skipped in v1.
 - Internal identifiers (package name `chamnenh-client`, DB `chamnenh_pos`, cookie
   `chamnenh_token`) keep the old spelling on purpose; renaming them is churn.
 

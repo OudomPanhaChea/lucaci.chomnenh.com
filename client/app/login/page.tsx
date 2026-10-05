@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { toast } from "react-toastify";
 import { useAuth } from "@/hooks/useAuth";
 import { apiError } from "@/services/api";
+import { useT } from "@/lib/i18n";
+import LanguageSwitch from "@/components/language-switch";
 
 export default function LoginPage() {
   const { user, loading, login } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
+  const { t } = useT();
 
   useEffect(() => {
     if (!loading && user) router.replace("/admin/dashboard");
@@ -22,7 +25,7 @@ export default function LoginPage() {
       await login(email, password);
       router.replace("/admin/dashboard");
     } catch (err) {
-      toast.error(apiError(err, "Could not log in"));
+      toast.error(apiError(err, t("Could not log in")));
       setSubmitting(false);
     }
   };
@@ -37,17 +40,14 @@ export default function LoginPage() {
         </div>
         <div>
           <h1 className="max-w-md text-3xl font-semibold leading-snug text-ink-foreground">
-            Sell, track and understand your business in real time.
+            {t("Sell, track stock and see reports in one place.")}
           </h1>
-          <p className="mt-3 max-w-md text-ink-foreground/60">
-            Point of sale, inventory, clients and reports. Every sale appears on your
-            dashboard the moment it happens.
-          </p>
         </div>
         <p className="text-sm text-ink-foreground/40">lucaci.chomnenh.com</p>
       </div>
 
-      <div className="flex flex-1 items-center justify-center bg-surface p-6">
+      <div className="relative flex flex-1 items-center justify-center bg-surface p-6">
+        <LanguageSwitch className="absolute right-4 top-4" />
         <div className="w-full max-w-sm">
           <div className="mb-8 lg:hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -55,26 +55,25 @@ export default function LoginPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/images/Chomnenh-logo-white.png" alt="Chomnenh" className="hidden h-9 w-auto dark:block" />
           </div>
-          <h2 className="text-2xl font-semibold text-fg">Welcome back</h2>
-          <p className="mb-6 mt-1 text-sm text-fg-muted">Log in to your POS account</p>
+          <h2 className="mb-6 text-2xl font-semibold text-fg">{t("Log in")}</h2>
 
           <Form layout="vertical" onFinish={onFinish} requiredMark={false} size="large">
             <Form.Item
-              label="Email"
+              label={t("Email")}
               name="email"
-              rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
+              rules={[{ required: true, type: "email", message: t("Enter a valid email") }]}
             >
               <Input placeholder="you@example.com" autoComplete="email" />
             </Form.Item>
             <Form.Item
-              label="Password"
+              label={t("Password")}
               name="password"
-              rules={[{ required: true, message: "Enter your password" }]}
+              rules={[{ required: true, message: t("Enter your password") }]}
             >
               <Input.Password placeholder="••••••••" autoComplete="current-password" />
             </Form.Item>
             <Button type="primary" htmlType="submit" block loading={submitting}>
-              Log in
+              {t("Log in")}
             </Button>
           </Form>
         </div>

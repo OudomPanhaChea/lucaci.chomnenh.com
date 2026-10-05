@@ -6,15 +6,17 @@ import { toast } from "react-toastify";
 import api, { apiError } from "@/services/api";
 import { money } from "@/lib/format";
 import type { Payment, PaymentMethod } from "@/lib/types";
+import { useT, type TKey } from "@/lib/i18n";
+import { useMethodOptions } from "@/components/ui/status-badge";
 
 // Correcting one standalone ledger row of a client: a deposit, recorded
 // previous owing, or a payment against that owing. The server re-applies the
 // difference to the client's balance, so a mistyped amount can be fixed
 // without a compensating entry. Invoice payments are not editable here.
-const TITLE: Record<string, string> = {
-  deposit: "Edit deposit",
-  owing_add: "Edit previous owing",
-  owing_pay: "Edit owing payment",
+const TITLE: Record<string, TKey> = {
+  deposit: "Edit prepaid",
+  owing_add: "Edit owing",
+  owing_pay: "Edit payment",
 };
 
 export default function LedgerEditModal({
@@ -28,6 +30,8 @@ export default function LedgerEditModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t } = useT();
+  const methodOptions = useMethodOptions();
   const [amount, setAmount] = useState<number | null>(null);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [note, setNote] = useState("");
@@ -53,7 +57,7 @@ export default function LedgerEditModal({
         ...(hasMethod ? { method } : {}),
         note: note.trim() || null,
       });
-      toast.success("Ledger entry updated");
+      toast.success(t("Saved"));
       onDone();
       onClose();
     } catch (err) {
@@ -69,8 +73,9 @@ export default function LedgerEditModal({
       onCancel={onClose}
       centered
       width={420}
-      title={payment ? TITLE[payment.type] || "Edit entry" : ""}
-      okText={amount ? `Save ${money(amount)}` : "Save"}
+      title={payment ? t(TITLE[payment.type] ?? "Edit") : ""}
+      okText={t("Save")}
+      cancelText={t("Cancel")}
       onOk={submit}
       confirmLoading={saving}
       okButtonProps={{ disabled: !amount || amount <= 0 }}
@@ -79,17 +84,13 @@ export default function LedgerEditModal({
       {payment && (
         <div className="space-y-4 py-2">
           <div className="rounded-lg bg-surface-sunken p-3 text-center text-sm">
-            <p className="text-fg-subtle">Recorded amount</p>
+            <p className="text-fg-subtle">{t("Current amount")}</p>
             <p className="tabular text-xl font-semibold text-fg">
               {money(payment.amount)}
             </p>
           </div>
-          <p className="rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand-soft-foreground">
-            Changing the amount updates the client&apos;s balance by the
-            difference.
-          </p>
           <div>
-            <p className="mb-1 text-sm text-fg-muted">Amount</p>
+            <p className="mb-1 text-sm text-fg-muted">{t("Amount")}</p>
             <InputNumber
               autoFocus
               size="large"
@@ -105,16 +106,11 @@ export default function LedgerEditModal({
               block
               value={method}
               onChange={(v) => setMethod(v as PaymentMethod)}
-              options={[
-                { label: "Cash", value: "cash" },
-                { label: "KHQR", value: "khqr" },
-                { label: "Card", value: "card" },
-                { label: "Bank", value: "bank" },
-              ]}
+              options={methodOptions}
             />
           )}
           <Input
-            placeholder="Note (optional)"
+            placeholder={t("Note")}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             maxLength={255}

@@ -3,6 +3,7 @@ import { Package } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { ClientStatement } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 // What this client buys, ranked by the amount spent on it (quantities stay in
 // the units they were sold, per the owner's display rule).
@@ -15,15 +16,13 @@ export default function ProductsRank({
   loading: boolean;
   hasRange: boolean;
 }) {
+  const { t } = useT();
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
   if (products.length === 0) {
     return (
       <EmptyState
         icon={Package}
-        title="No products yet"
-        description={hasRange
-          ? "Nothing was bought in the selected period. Try a wider date range."
-          : "Products this client buys will be ranked here after their first sale."}
+        title={hasRange ? t("No results") : t("No purchases yet")}
       />
     );
   }

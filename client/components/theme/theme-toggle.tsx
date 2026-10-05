@@ -2,16 +2,18 @@
 import { useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { useMounted } from "@/hooks/useMounted";
+import { useT } from "@/lib/i18n";
 
 const MODES = [
-  { key: "light", icon: Sun, label: "Light theme" },
-  { key: "dark", icon: Moon, label: "Dark theme" },
-  { key: "system", icon: Monitor, label: "System theme" },
+  { key: "light", icon: Sun, label: "Light" },
+  { key: "dark", icon: Moon, label: "Dark" },
+  { key: "system", icon: Monitor, label: "Auto" },
 ] as const;
 
 export default function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const mounted = useMounted();
+  const { t } = useT();
   if (!mounted) return <div className="h-8 w-24" />;
 
   return (
@@ -20,7 +22,8 @@ export default function ThemeToggle() {
         <button
           key={key}
           type="button"
-          aria-label={label}
+          aria-label={t(label)}
+          aria-pressed={theme === key}
           onClick={() => setTheme(key)}
           className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors duration-200 ${
             theme === key

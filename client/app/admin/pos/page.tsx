@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
-import { Input, Modal, Select, Segmented, Form, Switch } from "antd";
+import { useRouter } from "next/navigation";
+import { Input, Modal, Popconfirm, Select, Segmented, Form, Switch } from "antd";
 import { Button } from "@/components/ui/button";
 import { InputNumber } from "@/components/ui/input-number";
 import { toast } from "react-toastify";
@@ -22,6 +22,9 @@ import {
   QrCode,
   CreditCard,
   Landmark,
+  FilePen,
+  X,
+  Check,
 } from "lucide-react";
 import api, { apiError } from "@/services/api";
 import { playScanBeep, playScanError } from "@/lib/sound";
@@ -30,6 +33,9 @@ import {
   readSavedCart,
   clearSavedCart,
   rehydrateCart,
+  writePicked,
+  type InvoiceEdit,
+  type BonusPick,
 } from "@/lib/pos-cart";
 import { useRealtime } from "@/hooks/useRealtime";
 import BarcodeScanner from "@/components/barcode-scanner";
@@ -43,6 +49,7 @@ import {
 import Receipt from "@/components/receipt";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useT, t as tNow } from "@/lib/i18n";
 import { money, khr, num, unitPrice } from "@/lib/format";
 import type {
   Product,
@@ -75,6 +82,11 @@ const piecesOf = (lines: CartLine[], productId: number, exceptKey?: string) =>
         : n,
     0,
   );
+// "Items" = different products in the cart (a, b and c = 3), never summed
+// quantities: 10 pcs + 10 boxes of one product is one item.
+const countItems = (lines: { product: { id: number } }[]) =>
+  new Set(lines.map((l) => l.product.id)).size;
+
 // What a line change had to give up, so the caller can explain it. Quantities
 // are in the line's OWN unit (boxes stay boxes): never show base conversions.
 type Clamp = {
@@ -92,6 +104,7 @@ const applyLineChange = (
   lines: CartLine[],
   key: string,
   mutate: (l: CartLine) => CartLine,
+  ignoreStock = false,
 ): { lines: CartLine[]; clamped: Clamp } => {
   const idx = lines.findIndex((l) => lineKey(l) === key);
   if (idx < 0) return { lines, clamped: null };
@@ -103,7 +116,7 @@ const applyLineChange = (
     rest.splice(dupIdx, 1);
   }
   let clamped: Clamp = null;
-  if (next.product.stock_qty !== null) {
+  if (next.product.stock_qty !== null && !ignoreStock) {
     const avail = next.product.stock_qty - piecesOf(rest, next.product.id);
     const max = Math.max(Math.floor(avail / lineFactor(next)), 0);
     // Only a REQUEST above the cap is a clamp. Reaching 0 by pressing minus or
@@ -155,6 +168,24 @@ export default function PosPage() {
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [quickClientOpen, setQuickClientOpen] = useState(false);
   const [clientsLoaded, setClientsLoaded] = useState(false);
+  // Set when this screen was opened to CORRECT an existing invoice rather than
+  // ring up a new one. Everything behaves the same; only where the cart is
+  // persisted, and what the button at the bottom does, changes.
+  const [editing, setEditing] = useState<InvoiceEdit | null>(null);
+  const editRef = useRef<InvoiceEdit | null>(null);
+  // Set when the bonus page sent the user here to pick items for a bonus.
+  // Nothing is sold: no stock limit, no payment, Confirm hands the list back.
+  const [picking, setPicking] = useState<BonusPick | null>(null);
+  const pickRef = useRef<BonusPick | null>(null);
+  // Base pieces the invoice being corrected already holds, per product. Added
+  // back onto the loaded products so every stock check counts the invoice's
+  // own stock as available to it.
+  const allowanceRef = useRef<Map<number, number>>(new Map());
+  // Set the moment we navigate away, so the persist effect cannot write the
+  // finished edit cart back into storage on the way out.
+  const leavingRef = useRef(false);
+  const router = useRouter();
+  const { t } = useT();
   const searchRef = useRef<HTMLInputElement>(null);
   const restoreDone = useRef(false);
   // Latest cart for event handlers. Reading state inside a setCart updater is
@@ -177,9 +208,25 @@ export default function PosPage() {
   }, []);
 
   const loadProducts = useCallback(() => {
+    // While correcting an invoice the list is NOT filtered to active products:
+    // a line already on the invoice must survive its product being retired.
+    // `sellable` below is what the grid and scanner use, so a retired product
+    // still cannot be ADDED.
+    const params = editRef.current ? {} : { active: 1 };
     api
-      .get("/products", { params: { active: 1 } })
-      .then(({ data }) => setProducts(data))
+      .get("/products", { params })
+      .then(({ data }) => {
+        const allowance = allowanceRef.current;
+        setProducts(
+          allowance.size === 0
+            ? data
+            : (data as Product[]).map((p) =>
+                p.stock_qty !== null && allowance.has(p.id)
+                  ? { ...p, stock_qty: p.stock_qty + allowance.get(p.id)! }
+                  : p,
+              ),
+        );
+      })
       .catch(() => {});
   }, []);
   const loadClients = useCallback(() => {
@@ -188,6 +235,23 @@ export default function PosPage() {
       .then(({ data }) => setClients(data))
       .catch(() => {})
       .finally(() => setClientsLoaded(true));
+  }, []);
+
+  // Read the invoice being corrected BEFORE anything loads: the products
+  // request has to know whether to include retired ones, and the allowance has
+  // to be in place before the response lands.
+  useEffect(() => {
+    const pick = readSavedCart("pick")?.pick;
+    if (pick) {
+      pickRef.current = pick;
+      setPicking(pick);
+      return;
+    }
+    const saved = readSavedCart("edit");
+    if (!saved?.edit) return;
+    editRef.current = saved.edit;
+    allowanceRef.current = new Map(saved.edit.held ?? []);
+    setEditing(saved.edit);
   }, []);
 
   useEffect(() => {
@@ -215,10 +279,17 @@ export default function PosPage() {
   useEffect(() => {
     if (restoreDone.current || products.length === 0 || !clientsLoaded) return;
     restoreDone.current = true;
-    const saved = readSavedCart();
+    const edit = editRef.current;
+    const pick = pickRef.current;
+    const saved = readSavedCart(pick ? "pick" : edit ? "edit" : "cart");
     if (!saved) return;
     const lines = rehydrateCart(saved, products);
-    if (lines.length === 0) {
+    if (pick) {
+      setCart(lines);
+      setClientId(pick.client_id);
+      return; // the banner says what this is
+    }
+    if (lines.length === 0 && !edit) {
       clearSavedCart(); // every line went away; nothing left to restore
       return;
     }
@@ -229,30 +300,80 @@ export default function PosPage() {
         : null,
     );
     setDiscountPct(saved.discount_pct);
+    if (edit) {
+      // The invoice keeps its client; the client list is only for display.
+      setClientId(saved.client_id);
+      // A line the cart could not rebuild (its bulk unit was deleted since)
+      // would otherwise vanish from the invoice on save without a word.
+      const lost = saved.lines.length - lines.length;
+      if (lost > 0) {
+        toast.warn(tNow("Some lines could not be loaded. Check before saving."), {
+          toastId: "edit-lines-lost",
+          autoClose: false,
+        });
+      }
+      return; // the banner names the invoice; a toast on top would be noise
+    }
     // A pre-filled cart the cashier did not just build needs SOME notice, or a
     // leftover gets charged to the next customer. restoreDone already makes
     // this fire once; the id is belt and braces.
-    const count = lines.reduce((n, l) => n + l.quantity, 0);
-    toast.info(
-      `Cart restored (${num(count)} ${count === 1 ? "item" : "items"})`,
-      {
-        toastId: "cart-restored",
-      },
-    );
+    const count = countItems(lines);
+    toast.info(tNow("Cart restored ({n})", { n: num(count) }), {
+      toastId: "cart-restored",
+    });
   }, [products, clients, clientsLoaded]);
 
   // Persist the sale in progress so a reload, a crash, or iOS evicting the tab
   // mid-rush doesn't cost the cashier a scanned cart. Guarded on restoreDone or
   // the first render's empty cart would wipe the entry before it is read back.
+  // A correction is parked in its own slot, so the sale the cashier had in
+  // progress is still waiting for them afterwards.
   useEffect(() => {
-    if (!restoreDone.current) return;
-    saveCart(cart, clientId, discountPct);
-  }, [cart, clientId, discountPct]);
+    if (!restoreDone.current || leavingRef.current) return;
+    saveCart(cart, clientId, discountPct, editing ?? undefined, picking ?? undefined);
+  }, [cart, clientId, discountPct, editing, picking]);
 
   const discardCart = () => {
     setCart([]);
     setClientId(null);
     setDiscountPct(0);
+  };
+
+  // Leave a correction without writing anything. The invoice is rewritten only
+  // when Save is pressed, so this simply forgets the draft and goes back. The
+  // sale that was in progress before is still parked in the other slot.
+  const leaveEdit = () => {
+    leavingRef.current = true;
+    clearSavedCart("edit");
+    const to = editing?.return_to || "/admin/invoices";
+    editRef.current = null;
+    setEditing(null);
+    router.push(to);
+  };
+
+  // Leave pick mode. Cancel drops the draft; confirmPick saves it first.
+  const leavePick = () => {
+    leavingRef.current = true;
+    clearSavedCart("pick");
+    const to = picking?.return_to || "/admin/bonus";
+    pickRef.current = null;
+    setPicking(null);
+    router.push(to);
+  };
+  const confirmPick = () => {
+    if (!picking) return;
+    writePicked(
+      picking.client_id,
+      cartRef.current.map((l) => ({
+        product_id: l.product.id,
+        unit_id: l.unit?.id ?? null,
+        product_name: l.product.name,
+        unit_name: l.unit?.name ?? l.product.base_unit ?? "pcs",
+        quantity: l.quantity,
+        price: linePrice(l),
+      })),
+    );
+    leavePick();
   };
 
   // The chosen sort is remembered per page: read it back once on mount (not in
@@ -265,10 +386,18 @@ export default function PosPage() {
     storeSort("pos", k);
   }, []);
 
+  // What can be SOLD right now. While an invoice is being corrected `products`
+  // also carries retired ones, so its existing lines can be rebuilt; those
+  // must never become addable as NEW lines.
+  const sellable = useMemo(
+    () => products.filter((p) => p.is_active !== 0),
+    [products],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return sortProducts(
-      products.filter(
+      sellable.filter(
         (p) =>
           (!categoryId || p.category_id === categoryId) &&
           (!q ||
@@ -278,14 +407,21 @@ export default function PosPage() {
       ),
       sort,
     );
-  }, [products, search, categoryId, sort]);
+  }, [sellable, search, categoryId, sort]);
 
-  // Quantity of each product already in the cart (summed across its lines in
-  // the units they were entered), so the card can show the add registered.
-  const inCartQty = useMemo(() => {
-    const m = new Map<number, number>();
-    for (const l of cart)
-      m.set(l.product.id, (m.get(l.product.id) ?? 0) + l.quantity);
+  // What of each product is already in the cart, per unit as entered, so the
+  // card can show the add registered. Never summed across units: 10 pcs and
+  // 10 boxes are not "20".
+  const inCart = useMemo(() => {
+    const m = new Map<number, { qty: number; units: Set<string>; desc: string[] }>();
+    for (const l of cart) {
+      const e = m.get(l.product.id) ?? { qty: 0, units: new Set(), desc: [] };
+      const unit = l.unit?.name ?? l.product.base_unit ?? "pcs";
+      e.qty += l.quantity;
+      e.units.add(unit);
+      e.desc.push(`${num(l.quantity)} ${unit}${l.is_bonus ? " free" : ""}`);
+      m.set(l.product.id, e);
+    }
     return m;
   }, [cart]);
 
@@ -295,8 +431,9 @@ export default function PosPage() {
   const addToCart = useCallback(
     (product: Product, opts: { unit?: ProductUnit | null } = {}) => {
       const unit = opts.unit ?? null;
-      // Stock check in pieces across every line of this product; NULL = untracked
-      if (product.stock_qty !== null) {
+      // Stock check in pieces across every line of this product; NULL = untracked.
+      // Items picked for a bonus are not sold, so stock does not apply.
+      if (product.stock_qty !== null && !pickRef.current) {
         const used = piecesOf(cartRef.current, product.id);
         if (used + (unit?.factor ?? 1) > product.stock_qty) {
           playScanError();
@@ -304,7 +441,11 @@ export default function PosPage() {
           // toasts.
           stockToast(
             product.id,
-            `Only ${num(product.stock_qty)} ${product.base_unit || "pcs"} in stock for "${product.name}"`,
+            tNow("Only {n} {unit} left: {name}", {
+              n: num(product.stock_qty),
+              unit: product.base_unit || "pcs",
+              name: product.name,
+            }),
           );
           return;
         }
@@ -330,12 +471,12 @@ export default function PosPage() {
   // A carton (unit) barcode adds the whole bulk unit, not a piece.
   const handleBarcode = useCallback(
     async (code: string) => {
-      const local = products.find((p) => p.barcode === code);
+      const local = sellable.find((p) => p.barcode === code);
       if (local) {
         addToCart(local);
         return;
       }
-      const byUnit = products.find((p) =>
+      const byUnit = sellable.find((p) =>
         p.units?.some((u) => u.barcode === code),
       );
       if (byUnit) {
@@ -358,7 +499,7 @@ export default function PosPage() {
         playScanError();
       }
     },
-    [products, addToCart],
+    [sellable, addToCart],
   );
 
   // USB scanners "type" the code then send Enter. Beep on hit, buzz on an
@@ -366,10 +507,10 @@ export default function PosPage() {
   const onSearchEnter = () => {
     const code = search.trim();
     if (!code) return;
-    const exact = products.find((p) => p.barcode === code);
+    const exact = sellable.find((p) => p.barcode === code);
     const byUnit = exact
       ? null
-      : products.find((p) => p.units?.some((u) => u.barcode === code));
+      : sellable.find((p) => p.units?.some((u) => u.barcode === code));
     if (exact) {
       playScanBeep();
       addToCart(exact);
@@ -393,7 +534,12 @@ export default function PosPage() {
   // 12), so a clamp says why. No buzz here, unlike a scan: the cashier is
   // already looking at the field they just typed into.
   const mutateLine = (key: string, mutate: (l: CartLine) => CartLine) => {
-    const { lines, clamped } = applyLineChange(cartRef.current, key, mutate);
+    const { lines, clamped } = applyLineChange(
+      cartRef.current,
+      key,
+      mutate,
+      !!pickRef.current,
+    );
     setCart(lines);
     cartRef.current = lines; // keep rapid keystrokes off a stale read
     if (clamped) {
@@ -401,8 +547,12 @@ export default function PosPage() {
       stockToast(
         clamped.product_id,
         clamped.granted === 0
-          ? `No more "${clamped.name}" available`
-          : `Only ${num(clamped.granted)} ${clamped.unit} available for "${clamped.name}"`,
+          ? tNow("Out of stock: {name}", { name: clamped.name })
+          : tNow("Only {n} {unit} left: {name}", {
+              n: num(clamped.granted),
+              unit: clamped.unit,
+              name: clamped.name,
+            }),
       );
     }
   };
@@ -423,7 +573,8 @@ export default function PosPage() {
 
   const subtotal = cart.reduce((sum, l) => sum + linePrice(l) * l.quantity, 0);
   const discountAmount = subtotal * (discountPct / 100);
-  const taxRate = Number(settings?.tax_rate) || 0;
+  // A bonus pick is a plain list of items at agreed prices: no tax
+  const taxRate = picking ? 0 : Number(settings?.tax_rate) || 0;
   const taxAmount = (subtotal - discountAmount) * (taxRate / 100);
   const total = Math.round((subtotal - discountAmount + taxAmount) * 100) / 100;
 
@@ -477,15 +628,45 @@ export default function PosPage() {
       setMethod("cash");
       setPayOpen(false);
       if (owing > 0) {
-        toast.info(
-          `Sale ${data.invoice_number} completed, ${money(owing)} owing`,
-        );
+        toast.info(t("Sold {invoice}, {amount} owing", { invoice: data.invoice_number, amount: money(owing) }));
       } else {
-        toast.success(`Sale ${data.invoice_number} completed`);
+        toast.success(t("Sold {invoice}", { invoice: data.invoice_number }));
       }
       loadClients();
     } catch (err) {
-      toast.error(apiError(err, "Could not complete the sale"));
+      toast.error(apiError(err, t("Sale failed")));
+      loadProducts();
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  // What a correction does to the money: a settled invoice has to be settled
+  // again at the new total, so the difference is collected or handed back.
+  const editWasSettled = !!editing && editing.paid >= editing.total;
+  const editDiff = editing ? round2(total - editing.total) : 0;
+
+  // Save a correction back over the invoice it came from. It keeps its number;
+  // items, totals, stock and ledger are rewritten server-side.
+  const saveInvoice = async () => {
+    const edit = editing;
+    if (!edit || cart.length === 0 || paying) return;
+    setPaying(true);
+    try {
+      await api.put(`/sales/${edit.sale_id}`, {
+        items: cart.map((l) => ({
+          product_id: l.product.id,
+          quantity: l.quantity,
+          unit_id: l.unit?.id,
+          price: l.is_bonus ? undefined : (l.price ?? undefined),
+          is_bonus: l.is_bonus || undefined,
+        })),
+        discount_pct: discountPct,
+      });
+      toast.success(t("Invoice saved"));
+      leaveEdit();
+    } catch (err) {
+      toast.error(apiError(err, t("Could not save")));
       loadProducts();
     } finally {
       setPaying(false);
@@ -502,7 +683,7 @@ export default function PosPage() {
       await loadClients();
       setClientId(data.id);
       setQuickClientOpen(false);
-      toast.success("Client created");
+      toast.success(t("Client added"));
     } catch (err) {
       toast.error(apiError(err));
     }
@@ -512,13 +693,57 @@ export default function PosPage() {
     <div className="flex flex-col gap-4 xl:h-[calc(100dvh-6.5rem)] xl:flex-row">
       {/* ── Product picker ── */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* The mode, stated before anything else. It sits in this column and
+            not in the cart because the cart is BELOW the products on a phone,
+            and nobody should start tapping products without knowing they are
+            editing an invoice rather than starting a sale. */}
+        {picking && (
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-brand/40 bg-brand-soft px-3.5 py-2.5">
+            <Gift
+              className="h-5 w-5 shrink-0 text-brand-soft-foreground"
+              aria-hidden
+            />
+            <p className="min-w-[12rem] flex-1 text-sm font-semibold text-brand-soft-foreground">
+              {t("Bonus items for {name}", { name: picking.client_name })}
+            </p>
+            <Popconfirm
+              title={t("Leave without saving?")}
+              okText={t("Yes")}
+              cancelText={t("No")}
+              okButtonProps={{ danger: true }}
+              onConfirm={leavePick}
+            >
+              <Button icon={<X className="h-4 w-4" aria-hidden />}>{t("Cancel")}</Button>
+            </Popconfirm>
+          </div>
+        )}
+        {editing && (
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-brand/40 bg-brand-soft px-3.5 py-2.5">
+            <FilePen
+              className="h-5 w-5 shrink-0 text-brand-soft-foreground"
+              aria-hidden
+            />
+            <p className="min-w-[12rem] flex-1 text-sm font-semibold text-brand-soft-foreground">
+              {t("Editing {invoice}", { invoice: editing.invoice_number })}
+            </p>
+            <Popconfirm
+              title={t("Stop editing without saving?")}
+              okText={t("Yes")}
+              cancelText={t("No")}
+              okButtonProps={{ danger: true }}
+              onConfirm={leaveEdit}
+            >
+              <Button icon={<X className="h-4 w-4" aria-hidden />}>{t("Cancel")}</Button>
+            </Popconfirm>
+          </div>
+        )}
         <div className="mb-3 flex gap-2">
           <Input
             ref={searchRef as never}
             size="large"
             allowClear
             prefix={<Search className="h-4 w-4 text-fg-subtle" />}
-            placeholder="Search name, barcode or SKU. Scanner guns work here too"
+            placeholder={t("Search or scan")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onPressEnter={onSearchEnter}
@@ -528,13 +753,13 @@ export default function PosPage() {
             icon={<ScanBarcode className="h-4.5 w-4.5" />}
             onClick={() => setScannerOpen(true)}
           >
-            <span className="hidden sm:inline">Scan</span>
+            <span className="hidden sm:inline">{t("Scan")}</span>
           </Button>
           <ProductSortMenu size="large" value={sort} onChange={changeSort} />
         </div>
 
         <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
-          {[{ id: null, name: "All" }, ...categories].map((c) => (
+          {[{ id: null, name: t("All") }, ...categories].map((c) => (
             <button
               key={c.id ?? "all"}
               type="button"
@@ -554,15 +779,16 @@ export default function PosPage() {
           {filtered.length === 0 ? (
             <EmptyState
               icon={PackageOpen}
-              title="No products found"
-              description="Try a different search, or add products in Inventory."
+              title={t("No products found")}
             />
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
               {filtered.map((p) => {
                 const price = unitPrice(p.sell_price, p.discount_pct);
-                const out = p.stock_qty !== null && p.stock_qty <= 0;
-                const carted = inCartQty.get(p.id) ?? 0;
+                const out =
+                  !picking && p.stock_qty !== null && p.stock_qty <= 0;
+                const entry = inCart.get(p.id);
+                const carted = entry?.qty ?? 0;
                 // In partner mode, surface the largest bulk unit's price on the card
                 const bulk =
                   isPartner && p.units?.length
@@ -602,7 +828,7 @@ export default function PosPage() {
                       )}
                       {out && (
                         <span className="absolute inset-x-0 bottom-0 bg-black/60 py-1 text-center text-xs text-white">
-                          Out of stock
+                          {t("Out of stock")}
                         </span>
                       )}
                     </div>
@@ -611,14 +837,22 @@ export default function PosPage() {
                         <p className="min-w-0 truncate! text-nowrap text-sm font-medium text-fg">
                           {p.name}
                         </p>
-                        {carted > 0 && (
+                        {entry && (
                           // key remounts the pill on every quantity change so
-                          // the pop replays: the cashier sees the add land
+                          // the pop replays: the cashier sees the add land.
+                          // Several units of one product (pcs + boxes) cannot
+                          // be added up, so they show a tick instead of a sum.
                           <span
-                            key={carted}
-                            className="badge-pop tabular shrink-0 rounded-full bg-brand h-5 w-5 flex items-center justify-center text-center text-xs font-semibold leading-none text-brand-foreground"
+                            key={entry.desc.join("+")}
+                            title={entry.desc.join(" + ")}
+                            aria-label={t("In cart: {items}", { items: entry.desc.join(" + ") })}
+                            className="badge-pop tabular flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand px-1 text-center text-xs font-semibold leading-none text-brand-foreground"
                           >
-                            {num(carted)}
+                            {entry.units.size === 1 ? (
+                              num(carted)
+                            ) : (
+                              <Check className="h-3 w-3" aria-hidden />
+                            )}
                           </span>
                         )}
                       </div>
@@ -633,7 +867,7 @@ export default function PosPage() {
                         </span>
                         {p.stock_qty !== null && (
                           <span className="tabular text-xs text-fg-subtle">
-                            {num(p.stock_qty)} left
+                            {t("{n} left", { n: num(p.stock_qty) })}
                           </span>
                         )}
                       </div>
@@ -653,24 +887,43 @@ export default function PosPage() {
         }`}
       >
         <div className="flex items-center justify-between border-b border-line p-3">
-          <h2 className="flex items-center gap-2 font-medium text-fg">
-            <ShoppingCart className="h-4.5 w-4.5" /> Cart
-            <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand-soft-foreground">
-              {cart.reduce((n, l) => n + l.quantity, 0)}
+          <h2 className="flex min-w-0 items-center gap-2 font-medium text-fg">
+            {picking ? (
+              <>
+                <Gift className="h-4.5 w-4.5 shrink-0" aria-hidden />{" "}
+                {t("Bonus items")}
+              </>
+            ) : editing ? (
+              <>
+                <FilePen className="h-4.5 w-4.5 shrink-0" aria-hidden />
+                <span className="truncate font-mono text-sm">
+                  {editing.invoice_number}
+                </span>
+              </>
+            ) : (
+              <>
+                <ShoppingCart className="h-4.5 w-4.5 shrink-0" aria-hidden />{" "}
+                {t("Cart")}
+              </>
+            )}
+            <span className="tabular text-sm font-normal text-fg-subtle">
+              {num(countItems(cart))}
             </span>
           </h2>
           {cart.length > 0 && (
             <button
               type="button"
-              onClick={discardCart}
-              className="cursor-pointer rounded-md px-1.5 py-0.5 text-sm text-rose-600 transition-colors duration-200 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/10"
+              // While correcting an invoice this empties the LINES only: which
+              // invoice it is, and whose, stay put.
+              onClick={editing || picking ? () => setCart([]) : discardCart}
+              className="cursor-pointer rounded-md px-1.5 py-0.5 text-sm text-fg-muted transition-colors duration-200 hover:bg-surface-sunken hover:text-fg"
             >
-              Clear
+              {t("Clear")}
             </button>
           )}
         </div>
 
-        {/* Who this sale is for: amber = partner (wholesale), brand = named client */}
+        {/* Who this sale is for; the handshake marks a partner (wholesale) sale */}
         {selectedClient && (
           <div
             className={`flex items-center gap-2 border-b px-3 py-2 text-sm border-line bg-brand-soft text-brand-soft-foreground`}
@@ -680,11 +933,9 @@ export default function PosPage() {
             ) : (
               <UserRound className="h-4 w-4 shrink-0" />
             )}
-            <span className="min-w-0 flex-1 truncate">
-              <span className="font-semibold">
-                {isPartner ? "Partner sale" : "Client sale"}
-              </span>
-              : {selectedClient.name}
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {isPartner ? `${t("Partner")}: ` : ""}
+              {selectedClient.name}
             </span>
           </div>
         )}
@@ -692,7 +943,9 @@ export default function PosPage() {
         <div className="max-h-72 min-h-24 flex-1 overflow-y-auto xl:max-h-none">
           {cart.length === 0 ? (
             <p className="px-4 py-10 text-center text-sm text-fg-muted">
-              Tap a product or scan a barcode to start a sale.
+              {editing || picking
+                ? t("No items. Add at least one.")
+                : t("Tap a product or scan to start.")}
             </p>
           ) : (
             <ul className="divide-y divide-line">
@@ -709,23 +962,17 @@ export default function PosPage() {
                       <p className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
                         {l.product.name}
                         {l.is_bonus && (
-                          <span className="ml-1.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-soft dark:bg-brand-500 dark:text-brand-700">
-                            Bonus
+                          <span className="ml-1.5 text-xs font-normal text-fg-subtle">
+                            ({t("Free")})
                           </span>
                         )}
                       </p>
+                      {!picking && (
                       <button
                         type="button"
-                        title={
-                          l.is_bonus
-                            ? "Make it a paid line"
-                            : "Mark as FREE bonus"
-                        }
-                        aria-label={
-                          l.is_bonus
-                            ? "Make it a paid line"
-                            : "Mark as FREE bonus"
-                        }
+                        title={l.is_bonus ? t("Charge") : t("Free")}
+                        aria-label={l.is_bonus ? t("Charge") : t("Free")}
+                        aria-pressed={l.is_bonus}
                         onClick={() => toggleBonus(key)}
                         className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors duration-200 ${
                           l.is_bonus
@@ -735,11 +982,12 @@ export default function PosPage() {
                       >
                         <Gift className="h-3.5 w-3.5" />
                       </button>
+                      )}
                       <button
                         type="button"
-                        aria-label="Remove item"
+                        aria-label={t("Remove")}
                         onClick={() => setQty(key, 0)}
-                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-rose-500 transition-colors duration-200 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-fg-subtle transition-colors duration-200 hover:bg-surface-sunken hover:text-fg"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -762,7 +1010,7 @@ export default function PosPage() {
                       )}
                       {l.is_bonus ? (
                         <span className="flex-1 text-xs text-fg-subtle">
-                          Bonus, not charged
+                          {t("Free")}
                         </span>
                       ) : (
                         <InputNumber
@@ -771,7 +1019,7 @@ export default function PosPage() {
                           step={0.25}
                           prefix="$"
                           className="!w-24"
-                          title="Line price, editable for negotiated deals"
+                          aria-label={t("Price")}
                           // status={negotiated ? "warning" : undefined}
                           value={price}
                           onChange={(v) =>
@@ -782,7 +1030,7 @@ export default function PosPage() {
                       <div className="ml-auto flex items-center gap-1">
                         <button
                           type="button"
-                          aria-label="Decrease quantity"
+                          aria-label={t("Less")}
                           onClick={() => setQty(key, l.quantity - 1)}
                           className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken"
                         >
@@ -792,7 +1040,7 @@ export default function PosPage() {
                           size="small"
                           min={0}
                           controls={false}
-                          aria-label="Quantity"
+                          aria-label={t("Qty")}
                           className="min-w-12! py-0.5! [&_input]:text-center!"
                           value={l.quantity}
                           onChange={(v) => {
@@ -801,7 +1049,7 @@ export default function PosPage() {
                         />
                         <button
                           type="button"
-                          aria-label="Increase quantity"
+                          aria-label={t("More")}
                           onClick={() => setQty(key, l.quantity + 1)}
                           className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-fg-muted transition-colors duration-200 hover:bg-surface-sunken"
                         >
@@ -811,7 +1059,7 @@ export default function PosPage() {
                     </div>
                     <p className="tabular text-right text-xs text-fg-muted">
                       {l.is_bonus ? (
-                        `${l.quantity} × FREE`
+                        `${l.quantity} × ${t("Free")}`
                       ) : (
                         <>
                           {negotiated && (
@@ -832,11 +1080,16 @@ export default function PosPage() {
         </div>
 
         <div className="space-y-2.5 border-t border-line p-3">
+          {!picking && (
+          <>
           <div className="flex gap-2">
             <Select
               className="flex-1"
-              placeholder="Walk-in customer"
-              allowClear
+              placeholder={t("Walk-in")}
+              allowClear={!editing}
+              // A corrected invoice keeps its client: the debt and history
+              // already belong to that account.
+              disabled={!!editing}
               showSearch
               optionFilterProp="label"
               value={clientId}
@@ -857,23 +1110,25 @@ export default function PosPage() {
                       </span>
                     )} */}
                     {Number(c.outstanding) > 0 && (
-                      <span className="tabular shrink-0 text-xs text-rose-500 dark:text-rose-400">
-                        owes {money(c.outstanding)}
+                      <span className="tabular shrink-0 text-xs text-fg-subtle">
+                        {t("Owes {amount}", { amount: money(c.outstanding) })}
                       </span>
                     )}
                   </span>
                 );
               }}
             />
-            <Button
-              icon={<UserPlus className="h-4 w-4" />}
-              onClick={() => setQuickClientOpen(true)}
-              aria-label="Quick add client"
-            />
+            {!editing && (
+              <Button
+                icon={<UserPlus className="h-4 w-4" />}
+                onClick={() => setQuickClientOpen(true)}
+                aria-label={t("New client")}
+              />
+            )}
           </div>
 
           <div className="flex items-center justify-between text-sm">
-            <span className="text-fg-muted">Discount %</span>
+            <span className="text-fg-muted">{t("Discount %")}</span>
             <InputNumber
               min={0}
               max={100}
@@ -882,26 +1137,28 @@ export default function PosPage() {
               className="!w-24"
             />
           </div>
+          </>
+          )}
 
           <div className="space-y-1 text-sm">
             <div className="flex justify-between text-fg-muted">
-              <span>Subtotal</span>
+              <span>{t("Subtotal")}</span>
               <span className="tabular">{money(subtotal)}</span>
             </div>
             {discountAmount > 0 && (
               <div className="flex justify-between text-fg-muted">
-                <span>Discount</span>
+                <span>{t("Discount")}</span>
                 <span className="tabular">-{money(discountAmount)}</span>
               </div>
             )}
             {taxRate > 0 && (
               <div className="flex justify-between text-fg-muted">
-                <span>Tax ({taxRate}%)</span>
+                <span>{t("Tax ({rate}%)", { rate: taxRate })}</span>
                 <span className="tabular">{money(taxAmount)}</span>
               </div>
             )}
             <div className="flex items-baseline justify-between border-t border-line pt-1.5">
-              <span className="text-base font-semibold text-fg">Total</span>
+              <span className="text-base font-semibold text-fg">{t("Total")}</span>
               <span className="tabular text-2xl font-bold text-fg">
                 {money(total)}
               </span>
@@ -916,42 +1173,72 @@ export default function PosPage() {
             )}
           </div>
 
-          {selectedClient &&
+          {!picking &&
+            selectedClient &&
             (Number(selectedClient.credit_balance) > 0 ||
               Number(selectedClient.outstanding) > 0) && (
               <p className="text-xs text-fg-subtle">
-                {Number(selectedClient.credit_balance) > 0 && (
-                  <span className="text-emerald-600 dark:text-emerald-400">
-                    Prepaid {money(selectedClient.credit_balance)}
-                  </span>
-                )}
+                {Number(selectedClient.credit_balance) > 0 &&
+                  `${t("Prepaid")} ${money(selectedClient.credit_balance)}`}
                 {Number(selectedClient.credit_balance) > 0 &&
                   Number(selectedClient.outstanding) > 0 &&
                   " · "}
-                {Number(selectedClient.outstanding) > 0 && (
-                  <span className="text-rose-600 dark:text-rose-400">
-                    Owes {money(selectedClient.outstanding)}
-                  </span>
-                )}
+                {Number(selectedClient.outstanding) > 0 &&
+                  t("Owes {amount}", { amount: money(selectedClient.outstanding) })}
               </p>
             )}
+
+          {/* A correction changes a bill the customer already has, so the
+              figure that matters at the counter is the DIFFERENCE. */}
+          {editing && (
+            <div className="space-y-1.5 border-t border-line pt-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-fg-muted">{t("Old total")}</span>
+                <span className="tabular text-fg-muted">
+                  {money(editing.total)}
+                </span>
+              </div>
+              {editWasSettled && editDiff !== 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-sunken px-2.5 py-1.5">
+                  <span className="font-medium text-fg">
+                    {editDiff > 0 ? t("Collect") : t("Give back")}
+                  </span>
+                  <span className="tabular font-semibold text-fg">
+                    {money(Math.abs(editDiff))}
+                  </span>
+                </div>
+              )}
+              {!editWasSettled && editDiff !== 0 && (
+                <p className="text-xs text-fg-subtle">
+                  {t("Owing {amount}", {
+                    amount: `${editDiff > 0 ? "+" : "-"}${money(Math.abs(editDiff))}`,
+                  })}
+                </p>
+              )}
+            </div>
+          )}
 
           <Button
             type="primary"
             size="large"
             block
             disabled={cart.length === 0}
-            onClick={openPay}
+            loading={editing ? paying : false}
+            onClick={picking ? confirmPick : editing ? saveInvoice : openPay}
           >
-            Charge {money(total)}
+            {picking
+              ? t("Confirm")
+              : editing
+                ? t("Save")
+                : t("Charge {amount}", { amount: money(total) })}
           </Button>
-          {lastSale && (
+          {!editing && !picking && lastSale && (
             <Button
               block
               icon={<Printer className="h-4 w-4" />}
               onClick={() => window.print()}
             >
-              Print last receipt ({lastSale.invoice_number})
+              {t("Print receipt")}
             </Button>
           )}
         </div>
@@ -969,12 +1256,9 @@ export default function PosPage() {
         open={payOpen}
         onCancel={() => setPayOpen(false)}
         centered
-        title="Take payment"
-        okText={
-          owing > 0
-            ? `Confirm, ${money(owing)} owing`
-            : `Confirm ${money(total)}`
-        }
+        title={t("Payment")}
+        okText={t("Confirm")}
+        cancelText={t("Cancel")}
         onOk={checkout}
         confirmLoading={paying}
         okButtonProps={{
@@ -990,7 +1274,7 @@ export default function PosPage() {
                     {selectedClient.name}
                   </span>
               ) : (
-                "Walk-in customer"
+                t("Walk-in")
               )}
             </p>
             <div className="flex items-baseline justify-center gap-2">
@@ -1008,9 +1292,9 @@ export default function PosPage() {
           {selectedClient && clientCredit > 0 && (
             <label className="flex cursor-pointer items-center justify-between rounded-lg border border-line px-3 py-2.5 transition-colors duration-200 hover:border-line-strong">
               <span className="text-sm text-fg">
-                Use prepaid balance
+                {t("Use prepaid")}
                 <span className="tabular ml-1 text-fg-muted">
-                  ({money(clientCredit)} available)
+                  ({money(clientCredit)})
                 </span>
               </span>
               <Switch
@@ -1037,7 +1321,7 @@ export default function PosPage() {
                     label: (
                       <span className="flex items-center justify-center gap-1.5">
                         <Banknote className="h-4 w-4" />
-                        Cash
+                        {t("Cash")}
                       </span>
                     ),
                     value: "cash",
@@ -1055,7 +1339,7 @@ export default function PosPage() {
                     label: (
                       <span className="flex items-center justify-center gap-1.5">
                         <CreditCard className="h-4 w-4" />
-                        Card
+                        {t("Card")}
                       </span>
                     ),
                     value: "card",
@@ -1064,7 +1348,7 @@ export default function PosPage() {
                     label: (
                       <span className="flex items-center justify-center gap-1.5">
                         <Landmark className="h-4 w-4" />
-                        Bank
+                        {t("Bank")}
                       </span>
                     ),
                     value: "bank",
@@ -1073,7 +1357,7 @@ export default function PosPage() {
               />
               <div>
                 <div className="my-3 flex items-center justify-between">
-                  <p className="text-sm text-fg-muted">Paying now</p>
+                  <p className="text-sm text-fg-muted">{t("Pay now")}</p>
                   <div className="flex gap-1.5">
                     <button
                       type="button"
@@ -1083,7 +1367,7 @@ export default function PosPage() {
                       )}
                       onClick={() => setPayAmount(dueAfterCredit)}
                     >
-                      Full
+                      {t("Full")}
                     </button>
                     <button
                       type="button"
@@ -1092,7 +1376,7 @@ export default function PosPage() {
                       )}
                       onClick={() => setPayAmount(0)}
                     >
-                      Pay later
+                      {t("Pay later")}
                     </button>
                   </div>
                 </div>
@@ -1113,22 +1397,22 @@ export default function PosPage() {
           <div className="space-y-1 rounded-lg border border-line p-3 text-sm">
             {creditApplied > 0 && (
               <div className="flex justify-between text-fg-muted">
-                <span>Prepaid applied</span>
+                <span>{t("Prepaid used")}</span>
                 <span className="tabular">-{money(creditApplied)}</span>
               </div>
             )}
             <div className="flex justify-between text-fg-muted">
-              <span>Paying now</span>
+              <span>{t("Pay now")}</span>
               <span className="tabular">{money(payingNow)}</span>
             </div>
             {owing > 0 && (
               <div className="flex justify-between font-medium text-fg">
-                <span>Owing after</span>
+                <span>{t("Owing")}</span>
                 <span className="tabular">{money(owing)}</span>
               </div>
             )}
             <div className="flex items-center justify-between border-t border-line pt-1.5">
-              <span className="text-fg-muted">Invoice will be</span>
+              <span className="text-fg-muted">{t("Status")}</span>
               <StatusBadge
                 status={
                   owing <= 0
@@ -1141,15 +1425,9 @@ export default function PosPage() {
             </div>
           </div>
 
-          {owing > 0 && clientId && (
-            <p className="rounded-lg bg-brand-soft px-3 py-2 text-sm text-brand-soft-foreground">
-              {money(owing)} will be recorded as owing for{" "}
-              {selectedClient?.name}.
-            </p>
-          )}
           {owing > 0 && !clientId && (
             <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-              Select a client to sell with an unpaid balance.
+              {t("Choose a client to sell on credit.")}
             </p>
           )}
         </div>
@@ -1159,7 +1437,7 @@ export default function PosPage() {
       <Modal
         open={quickClientOpen}
         onCancel={() => setQuickClientOpen(false)}
-        title="Quick add client"
+        title={t("New client")}
         footer={null}
         destroyOnHidden
         centered
@@ -1172,26 +1450,26 @@ export default function PosPage() {
           initialValues={{ client_type: "normal" }}
         >
           <Form.Item
-            label="Name"
+            label={t("Name")}
             name="name"
-            rules={[{ required: true, message: "Client name is required" }]}
+            rules={[{ required: true, message: t("Enter a name") }]}
           >
-            <Input placeholder="Client name" autoFocus />
+            <Input autoFocus />
           </Form.Item>
-          <Form.Item label="Phone" name="phone">
-            <Input placeholder="Phone number" />
+          <Form.Item label={t("Phone")} name="phone">
+            <Input inputMode="tel" />
           </Form.Item>
-          <Form.Item label="Type" name="client_type">
+          <Form.Item label={t("Type")} name="client_type">
             <Segmented
               block
               options={[
-                { label: "Normal", value: "normal" },
-                { label: "Partner (wholesale)", value: "partner" },
+                { label: t("Normal"), value: "normal" },
+                { label: t("Partner"), value: "partner" },
               ]}
             />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            Create and select
+            {t("Save")}
           </Button>
         </Form>
       </Modal>

@@ -26,11 +26,20 @@ export const modernPreset = (): TemplateElement[] => {
     el({ kind: "line", x: 48, y: 122, w: 698, h: 0, color: "#e0e6ea" }),
 
     // Info row
-    el({ kind: "field", binding: "client_name", label: "Billed To", x: 48, y: 156, w: 210, h: 52, fontSize: 15, fontWeight: 600, color: INK, align: "left" }),
+    // Billed To is a contact BLOCK: who, where, and how to reach them. The two
+    // contact lines are optional at the POS and print as nothing when blank, so
+    // a walk-in invoice simply has a shorter block rather than empty captions.
+    el({ kind: "field", binding: "client_name", label: "Billed To", x: 48, y: 156, w: 210, h: 40, fontSize: 15, fontWeight: 600, color: INK, align: "left" }),
+    el({ kind: "field", binding: "client_phone", x: 48, y: 198, w: 210, h: 16, fontSize: 11, color: MUTE, align: "left" }),
+    el({ kind: "field", binding: "client_address", x: 48, y: 216, w: 210, h: 32, fontSize: 11, color: MUTE, align: "left" }),
     el({ kind: "field", binding: "issue_date", label: "Date of Issue", x: 280, y: 156, w: 150, h: 44, fontSize: 13, color: INK, align: "left" }),
     el({ kind: "field", binding: "due_date", label: "Due Date", x: 280, y: 214, w: 150, h: 44, fontSize: 13, color: INK, align: "left" }),
     el({ kind: "field", binding: "invoice_number", label: "Invoice Number", x: 440, y: 156, w: 130, h: 44, fontSize: 13, color: INK, align: "right" }),
-    el({ kind: "field", binding: "amount_due", label: "Amount Due (USD)", x: 578, y: 156, w: 168, h: 64, fontSize: 26, fontWeight: 700, color: INK, align: "right" }),
+    // The headline figure is the TOTAL, not the balance. A POS sale is settled
+    // when it is charged, so `amount_due` (what is still owed) would print a
+    // large $0.00 on every counter invoice. A business that bills on account
+    // rebinds this to Amount Due in the editor; nothing decides it here.
+    el({ kind: "field", binding: "total", label: "Total (USD)", x: 578, y: 156, w: 168, h: 64, fontSize: 26, fontWeight: 700, color: INK, align: "right" }),
 
     // Items + totals
     el({ kind: "items", x: 48, y: 300, w: 698, h: 320, fontSize: 13, color: INK }),
@@ -51,7 +60,9 @@ export const minimalPreset = (): TemplateElement[] => {
     el({ kind: "field", binding: "invoice_number", label: "Invoice", x: 446, y: 92, w: 300, h: 40, fontSize: 13, color: INK, align: "right" }),
     el({ kind: "line", x: 48, y: 150, w: 698, h: 0, color: "#e0e6ea" }),
 
-    el({ kind: "field", binding: "client_name", label: "Billed To", x: 48, y: 180, w: 300, h: 50, fontSize: 15, fontWeight: 600, color: INK, align: "left" }),
+    el({ kind: "field", binding: "client_name", label: "Billed To", x: 48, y: 180, w: 300, h: 40, fontSize: 15, fontWeight: 600, color: INK, align: "left" }),
+    el({ kind: "field", binding: "client_phone", x: 48, y: 222, w: 300, h: 16, fontSize: 11, color: MUTE, align: "left" }),
+    el({ kind: "field", binding: "client_address", x: 48, y: 240, w: 300, h: 32, fontSize: 11, color: MUTE, align: "left" }),
     el({ kind: "field", binding: "issue_date", label: "Date", x: 446, y: 180, w: 300, h: 44, fontSize: 13, color: INK, align: "right" }),
 
     el({ kind: "items", x: 48, y: 280, w: 698, h: 340, fontSize: 13, color: INK }),

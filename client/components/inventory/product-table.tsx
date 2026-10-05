@@ -1,10 +1,11 @@
 "use client";
-import { Popconfirm, Table, Tag } from "antd";
+import { Popconfirm, Table } from "antd";
 import { Boxes, History, PackageOpen, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { money, num } from "@/lib/format";
 import type { Product } from "@/lib/types";
+import { useT } from "@/lib/i18n";
 
 interface ProductTableProps {
   products: Product[];
@@ -25,6 +26,7 @@ export function ProductTable({
   onAdjustStock,
   onHistory,
 }: ProductTableProps) {
+  const { t } = useT();
   return (
     <div className="rounded-xl border border-line bg-surface-raised shadow-card">
       <Table<Product>
@@ -35,7 +37,7 @@ export function ProductTable({
         scroll={{ x: 1200 }}
         columns={[
           {
-            title: "Product",
+            title: t("Product"),
             dataIndex: "name",
             minWidth: 280,
             render: (_, p) => (
@@ -63,21 +65,21 @@ export function ProductTable({
             ),
           },
           {
-            title: "Category",
+            title: t("Category"),
             dataIndex: "category_name",
             width: 130,
             align: "center" as const,
             render: (v) => v || <span className="text-fg-subtle">—</span>,
           },
           {
-            title: "Barcode",
+            title: t("Barcode"),
             dataIndex: "barcode",
             width: 160,
             align: "center" as const,
             render: (v) => v || <span className="text-fg-subtle">—</span>,
           },
           {
-            title: "Price",
+            title: t("Price"),
             dataIndex: "sell_price",
             width: 160,
             align: "right",
@@ -95,7 +97,7 @@ export function ProductTable({
             ),
           },
           {
-            title: "Cost",
+            title: t("Cost"),
             dataIndex: "cost_price",
             width: 160,
             align: "right",
@@ -108,7 +110,7 @@ export function ProductTable({
             ),
           },
           {
-            title: "Stock",
+            title: t("Stock"),
             dataIndex: "stock_qty",
             width: 160,
             align: "center",
@@ -121,10 +123,10 @@ export function ProductTable({
                   <span className="text-xs text-fg-subtle">—</span>
                 );
               if (p.stock_qty <= 0)
-                return <StatusBadge status="out" label="Out" />;
+                return <StatusBadge status="out" />;
               if (p.stock_qty <= p.low_stock_alert)
                 return (
-                  <StatusBadge status="low" label={`${num(p.stock_qty)} low`} />
+                  <StatusBadge status="low" label={`${num(p.stock_qty)} ${p.base_unit || "pcs"}`} />
                 );
               // Show the biggest bulk unit the count fits into, e.g. "48 tubes" + "4 × Box of 12"
               const unit = [...(p.units ?? [])]
@@ -144,15 +146,15 @@ export function ProductTable({
             },
           },
           {
-            title: "Status",
-            width: 150,
+            title: t("Status"),
+            width: 120,
             align: "center" as const,
-            render: (_, p) => (
-              <div className="flex flex-wrap gap-1 justify-center">
-                <StatusBadge status={p.is_active ? "active" : "inactive"} />
-                {!!p.show_in_menu && <Tag className="m-0!">Menu</Tag>}
-              </div>
-            ),
+            render: (_, p) =>
+              p.is_active ? (
+                t("Active")
+              ) : (
+                <span className="text-fg-subtle">{t("Inactive")}</span>
+              ),
           },
           ...(canManage
             ? [
@@ -167,18 +169,14 @@ export function ProductTable({
                         size="small"
                         type="text"
                         icon={<History className="h-4 w-4" />}
-                        title="Stock history"
+                        title={t("History")}
                         onClick={() => onHistory(p)}
                       />
                       <Button
                         size="small"
                         type="text"
                         icon={<Boxes className="h-4 w-4" />}
-                        title={
-                          p.stock_qty === null
-                            ? "This product does not track stock"
-                            : "Adjust stock"
-                        }
+                        title={p.stock_qty === null ? t("Stock not tracked") : t("Adjust stock")}
                         disabled={p.stock_qty === null}
                         onClick={() => onAdjustStock(p)}
                       />
@@ -186,12 +184,13 @@ export function ProductTable({
                         size="small"
                         type="text"
                         icon={<Pencil className="h-4 w-4" />}
-                        title="Edit"
+                        title={t("Edit")}
                         onClick={() => onEdit(p)}
                       />
                       <Popconfirm
-                        title={`Delete "${p.name}"?`}
-                        description="Past invoices keep their history."
+                        title={t("Delete {name}?", { name: p.name })}
+                        okText={t("Delete")}
+                        cancelText={t("Cancel")}
                         onConfirm={() => onDelete(p)}
                       >
                         <Button
@@ -199,7 +198,7 @@ export function ProductTable({
                           type="text"
                           danger
                           icon={<Trash2 className="h-4 w-4" />}
-                          title="Delete"
+                          title={t("Delete")}
                         />
                       </Popconfirm>
                     </div>

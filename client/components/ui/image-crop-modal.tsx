@@ -6,6 +6,7 @@ import type { Area } from "react-easy-crop";
 import { RotateCcw, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 const ASPECT_PRESETS = [
   { label: "1:1", value: 1 },
@@ -40,7 +41,7 @@ type Props = {
 export function ImageCropModal({
   open,
   src,
-  title = "Edit image",
+  title,
   aspect = 1,
   aspectSlider = false,
   cropShape = "rect",
@@ -49,6 +50,7 @@ export function ImageCropModal({
   onCancel,
   onApply,
 }: Props) {
+  const { t } = useT();
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -80,7 +82,7 @@ export function ImageCropModal({
       const file = await cropImageToFile(src, areaPixels, rotation, fileType, fileName);
       onApply(file);
     } catch {
-      toast.error("Could not process the image");
+      toast.error(t("Could not load the image"));
     } finally {
       setProcessing(false);
     }
@@ -90,19 +92,19 @@ export function ImageCropModal({
     <Modal
       open={open}
       onCancel={onCancel}
-      title={title}
+      title={title ?? t("Edit image")}
       centered
       width={560}
       destroyOnHidden
       footer={
         <div className="flex items-center justify-between">
           <Button type="text" icon={<RotateCcw className="h-4 w-4" />} onClick={reset}>
-            Reset
+            {t("Reset")}
           </Button>
           <div className="flex gap-2">
-            <Button onClick={onCancel}>Cancel</Button>
+            <Button onClick={onCancel}>{t("Cancel")}</Button>
             <Button type="primary" loading={processing} onClick={apply}>
-              Apply
+              {t("Apply")}
             </Button>
           </div>
         </div>
@@ -132,7 +134,7 @@ export function ImageCropModal({
       <div className="mt-3 space-y-2.5 rounded-xl bg-surface-sunken p-3.5">
         {aspectSlider && (
           <div className="flex items-center gap-3">
-            <span className="w-16 shrink-0 text-xs font-medium text-fg-muted">Ratio</span>
+            <span className="w-16 shrink-0 text-xs font-medium text-fg-muted">{t("Ratio")}</span>
             <Segmented
               block
               size="small"
@@ -144,7 +146,7 @@ export function ImageCropModal({
           </div>
         )}
         <div className="flex items-center gap-3">
-          <span className="w-16 shrink-0 text-xs font-medium text-fg-muted">Zoom</span>
+          <span className="w-16 shrink-0 text-xs font-medium text-fg-muted">{t("Zoom")}</span>
           <ZoomOut className="h-4 w-4 shrink-0 text-fg-subtle" />
           <Slider className="!m-0 flex-1" min={1} max={4} step={0.01} value={zoom}
             onChange={setZoom} tooltip={{ open: false }} />
@@ -154,13 +156,13 @@ export function ImageCropModal({
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="w-16 shrink-0 text-xs font-medium text-fg-muted">Straighten</span>
+          <span className="w-16 shrink-0 text-xs font-medium text-fg-muted">{t("Rotate")}</span>
           <Slider className="!m-0 flex-1" min={-180} max={180} step={1} value={rotation}
             onChange={setRotation} tooltip={{ open: false }} />
           <button
             type="button"
-            title="Rotate 90°"
-            aria-label="Rotate 90 degrees"
+            title={t("Rotate 90°")}
+            aria-label={t("Rotate 90°")}
             onClick={() => setRotation((r) => ((r + 90 + 180) % 360) - 180)}
             className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-colors duration-200 hover:bg-surface-raised hover:text-fg"
           >

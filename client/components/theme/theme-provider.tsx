@@ -2,6 +2,9 @@
 import { ReactNode } from "react";
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
 import { ConfigProvider, theme as antdTheme, App } from "antd";
+import enUS from "antd/locale/en_US";
+import kmKH from "antd/locale/km_KH";
+import { useT } from "@/lib/i18n";
 
 // Single theming authority: next-themes writes .dark on <html> pre-paint,
 // and this bridge feeds Ant Design the matching algorithm + brand tokens so
@@ -9,8 +12,10 @@ import { ConfigProvider, theme as antdTheme, App } from "antd";
 function AntdThemeBridge({ children }: { children: ReactNode }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const { lang } = useT();
   return (
     <ConfigProvider
+      locale={lang === "km" ? kmKH : enUS}
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
@@ -22,7 +27,7 @@ function AntdThemeBridge({ children }: { children: ReactNode }) {
           colorBorder: isDark ? "#23374a" : "#dde4e9",
           colorBorderSecondary: isDark ? "#1c2e3f" : "#e9edf0",
           borderRadius: 8,
-          fontFamily: "var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif",
+          fontFamily: "var(--font-fira-sans), var(--font-kantumruy), ui-sans-serif, system-ui, sans-serif",
         },
         components: {
           // Taller buttons app-wide (incl. Modal/Popconfirm footers) for
