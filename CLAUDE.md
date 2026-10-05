@@ -1728,6 +1728,16 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   import ran it with information_schema as the current DB → `#1044 access denied`.
   Rewritten as plain `ADD COLUMN IF NOT EXISTS` (MariaDB) like every other migration.
   **Never use DATABASE()/PREPARE in migrations; select the app DB in phpMyAdmin first.**
+- **hPanel build: Turbopack crashed, switched production build to webpack.** With
+  this batch (9 next/font families in `app/fonts.ts` = many more CSS modules), hPanel's
+  `next build` failed twice, deterministically: `TurbopackInternalError
+  [project]/app/globals.css … creating new process … node process exited before we
+  could connect to it with exit status: 0` (Turbopack's PostCSS worker processes;
+  most likely the shared plan's per-account process limit). The same build passed
+  locally. `client/package.json` `build` is now `next build --webpack` (PostCSS runs
+  in-process, no worker pool); verified locally with all 22 routes, `instrumentation.js`
+  (DNS pin) compiled, plus the full flows suite on `next start`. `npm run dev` stays
+  on Turbopack. Do not switch the build back to Turbopack without testing on hPanel.
 - Known, not fixed (pre-existing): no client-side role guard, so a cashier can open
   manager pages by URL (server 403s the data); deleting a client leaves its
   deposit/owing payments rows with `client_id` NULL. Dev server only: an occasional
