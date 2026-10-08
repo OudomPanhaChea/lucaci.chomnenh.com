@@ -90,6 +90,8 @@ export const km = {
   "Date": "កាលបរិច្ឆេទ",
   "Method": "វិធីបង់",
   "Invoice": "វិក្កយបត្រ",
+  "Bonus template": "គំរូរង្វាន់",
+  "No bonus template yet": "មិនទាន់មានគំរូរង្វាន់",
   "Client": "អតិថិជន",
   "Remove": "ដកចេញ",
   "Less": "បន្ថយ",
@@ -336,6 +338,9 @@ export const km = {
   "Pick in POS": "កន្លែងលក់",
   "Pick items first.": "សូមជ្រើសទំនិញជាមុនសិន។",
   "On the total": "លើសរុប",
+  "All products": "ទំនិញទាំងអស់",
+  "per unit": "ក្នុងមួយឯកតា",
+  "Bonus per unit for all products": "រង្វាន់ក្នុងមួយឯកតាសម្រាប់ទំនិញទាំងអស់",
   "Picked items": "ទំនិញដែលបានជ្រើស",
   "Template": "គំរូ",
   "Default": "លំនាំដើម",
@@ -488,6 +493,7 @@ export const km = {
 // Server responses carry English messages; the ones without names or amounts
 // in them are translated here (services/api.ts apiError → tServer).
 export const serverMessages: Record<string, string> = {
+  "Keep at least one template": "ត្រូវទុកគំរូយ៉ាងហោចណាស់មួយ",
   "A category with this name already exists": "មានប្រភេទឈ្មោះនេះរួចហើយ",
   "A product or unit with this barcode already exists": "មានទំនិញ ឬឯកតាដែលប្រើបាកូដនេះរួចហើយ",
   "A voided invoice cannot earn a bonus": "វិក្កយបត្រមោឃៈមិនអាចទទួលរង្វាន់បានទេ",
@@ -594,4 +600,5 @@ export const serverPatterns: [RegExp, string][] = [
   [/^(.+): the fixed amount must be greater than zero$/, "$1: ចំនួនថេរត្រូវតែធំជាងសូន្យ"],
   [/^(.+): the percentage must be between 0 and 100$/, "$1: ភាគរយត្រូវតែនៅចន្លោះ 0 និង 100"],
   [/^(.+): there is no amount to take a percentage of$/, "$1: គ្មានចំនួនសម្រាប់គិតភាគរយទេ"],
+  [/^(.+): the bonus per unit must be greater than zero$/, "$1: រង្វាន់ក្នុងមួយឯកតាត្រូវតែធំជាងសូន្យ"],
 ];

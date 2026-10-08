@@ -300,6 +300,7 @@ CREATE TABLE IF NOT EXISTS `bonus_items` (
   `line_total`     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `bonus_type`     ENUM('percent','fixed') NOT NULL DEFAULT 'percent',
   `pct`            DECIMAL(5,2)  DEFAULT NULL,        -- set when bonus_type = percent
+  `unit_rate`      DECIMAL(10,2) DEFAULT NULL,        -- picked-items bonus: $ per unit (amount = qty x rate)
   `amount`         DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   PRIMARY KEY (`id`),
   KEY `idx_bonus_items_bonus` (`bonus_id`),
@@ -335,6 +336,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
 CREATE TABLE IF NOT EXISTS `invoice_templates` (
   `id`          INT(11)       NOT NULL AUTO_INCREMENT,
   `business_id` INT(11)       NOT NULL DEFAULT 1,
+  `kind`        ENUM('invoice','bonus') NOT NULL DEFAULT 'invoice', -- each kind has its own default
   `name`        VARCHAR(120)  NOT NULL DEFAULT 'Template',
   `is_default`  TINYINT(1)    NOT NULL DEFAULT 0,
   `elements`    LONGTEXT      DEFAULT NULL,   -- JSON array of layout blocks

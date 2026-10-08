@@ -296,6 +296,7 @@ export default function SettingsPage() {
         </div>
 
         <TemplateManager settings={settings} onSettings={setSettings} />
+        <TemplateManager kind="bonus" settings={settings} onSettings={setSettings} />
         <div className="mt-4 flex justify-end">
           <Button type="primary" htmlType="submit" loading={saving}>
             {t("Save")}

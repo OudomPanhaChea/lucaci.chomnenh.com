@@ -235,8 +235,12 @@ export interface InvoiceTemplate {
   id: number;
   name: string;
   is_default: 0 | 1 | boolean;
+  kind?: TemplateKind;
   elements: TemplateElement[];
 }
+
+// 'invoice' layouts print invoices; 'bonus' layouts print bonus awards.
+export type TemplateKind = "invoice" | "bonus";
 
 // The dynamic values a `field` element can bind to. label = default caption.
 export const FIELD_BINDINGS: { key: string; label: string; sample: string }[] = [

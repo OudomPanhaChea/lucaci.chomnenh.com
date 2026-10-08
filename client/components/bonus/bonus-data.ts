@@ -36,7 +36,8 @@ export function resolveBonusData(
     items.push({
       name: it.product_name,
       qty: it.qty_desc || num(it.pieces),
-      rate: basis(Number(it.line_total), it.bonus_type, it.pct),
+      // A picked-items award prints its $ per unit (qty already in the qty column)
+      rate: it.unit_rate != null ? money(it.unit_rate) : basis(Number(it.line_total), it.bonus_type, it.pct),
       amount: money(it.amount),
       free: false,
     });
@@ -150,4 +151,48 @@ export function defaultBonusTemplateId(templates: { id: number; name: string; is
     templates[0]?.id ??
     null
   );
+}
+
+// What the Settings editor previews while designing a BONUS template: a small
+// picked-items award (rate per unit x quantity) for this business.
+export function sampleBonusData(settings: Settings | null): InvoiceData {
+  const lines: [string, string, number, number][] = [
+    ["Vitamin C Serum", "10 Box", 1, 10],
+    ["Sunscreen SPF50", "24 pcs", 0.5, 12],
+    ["Body Lotion", "6 Box", 1.5, 9],
+  ];
+  const bonus: Bonus = {
+    id: 1,
+    client_id: null,
+    client_name: "Sok Dara",
+    period_from: dayjs().format("YYYY-MM-DD"),
+    period_to: dayjs().format("YYYY-MM-DD"),
+    invoice_count: 0,
+    invoice_total: 0,
+    invoice_numbers: [],
+    level1_type: null,
+    level1_pct: null,
+    level1_amount: 0,
+    items_amount: 31,
+    total_amount: 31,
+    note: null,
+    created_by: "Admin",
+    created_at: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+    items: lines.map(([name, qty, rate, amount], i) => ({
+      id: i + 1,
+      bonus_id: 1,
+      sale_id: null,
+      invoice_number: "",
+      product_id: null,
+      product_name: name,
+      pieces: 0,
+      qty_desc: qty,
+      line_total: 0,
+      bonus_type: "fixed",
+      pct: null,
+      unit_rate: rate,
+      amount,
+    })),
+  };
+  return resolveBonusData(bonus, settings, { phone: "012 345 678", address: "Phnom Penh" });
 }

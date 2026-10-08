@@ -14,10 +14,10 @@ import { bonusElements, bonusRef, defaultBonusTemplateId, resolveBonusData } fro
 import type { Bonus } from "@/lib/types";
 import { useT } from "@/lib/i18n";
 
-// Preview + print/download of a bonus award, rendered through one of the
-// business's invoice templates. A template named for bonuses is picked by
-// default, so the owner can keep a copy of the invoice template with its own
-// title ("BONUS") and the paper never says "INVOICE".
+// Preview + print/download of a bonus award. It prints through the bonus
+// templates designed in Settings (exactly as designed, default first). Until
+// one exists it falls back to the invoice templates re-worded for a bonus
+// (title BONUS, Awarded To ...), a template named for bonuses picked first.
 export default function BonusPaperModal({
   bonus,
   client,
@@ -31,11 +31,29 @@ export default function BonusPaperModal({
   const open = !!bonus;
   const settings = usePaperSettings(open);
   const [templates, setTemplates] = useState<InvoiceTemplate[] | null>(null);
+  // true = printing from invoice templates (no bonus template yet)
+  const [fallback, setFallback] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    api.get("/invoice-templates").then(({ data }) => setTemplates(data)).catch(() => setTemplates([]));
+    let alive = true;
+    api
+      .get<InvoiceTemplate[]>("/invoice-templates", { params: { kind: "bonus" } })
+      .then(async ({ data }) => {
+        if (data.length) return { list: data, fallback: false };
+        const inv = await api.get<InvoiceTemplate[]>("/invoice-templates");
+        return { list: inv.data, fallback: true };
+      })
+      .then((r) => {
+        if (!alive) return;
+        setTemplates(r.list);
+        setFallback(r.fallback);
+      })
+      .catch(() => alive && setTemplates([]));
+    return () => {
+      alive = false;
+    };
   }, [open]);
 
   // A fresh paper always starts on the default bonus template
@@ -43,9 +61,18 @@ export default function BonusPaperModal({
     if (!open) setPicked(null);
   }, [open]);
 
-  const templateId = picked ?? (templates ? defaultBonusTemplateId(templates) : null);
+  const templateId =
+    picked ??
+    (templates
+      ? fallback
+        ? defaultBonusTemplateId(templates)
+        : (templates.find((t) => t.is_default) ?? templates[0])?.id ?? null
+      : null);
   const template = templates?.find((t) => t.id === templateId) ?? null;
-  const elements = useMemo(() => (template ? bonusElements(template.elements) : []), [template]);
+  const elements = useMemo(
+    () => (template ? (fallback ? bonusElements(template.elements) : template.elements) : []),
+    [template, fallback],
+  );
   const data = useMemo(
     () => (bonus ? resolveBonusData(bonus, settings, client) : null),
     [bonus, settings, client]
@@ -84,7 +111,7 @@ export default function BonusPaperModal({
         <div className="w-[520px] max-w-full">
           <EmptyState
             icon={FileWarning}
-            title={tr("No invoice template yet")}
+            title={tr("No bonus template yet")}
           />
         </div>
       ) : (

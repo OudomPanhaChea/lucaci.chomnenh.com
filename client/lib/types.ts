@@ -185,6 +185,7 @@ export interface BonusItem {
   line_total: number;
   bonus_type: "percent" | "fixed";
   pct: number | null; // set when bonus_type = percent
+  unit_rate?: number | null; // picked-items award: $ per unit (amount = qty x rate)
   amount: number;
 }
 

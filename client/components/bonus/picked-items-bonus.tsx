@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Checkbox, Divider, Input, Popconfirm } from "antd";
+import { Input, Popconfirm } from "antd";
 import { toast } from "react-toastify";
 import { PackageOpen, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,29 +16,33 @@ import {
 import { money, num } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import type { Bonus, Client } from "@/lib/types";
-import {
-  Amount,
-  EMPTY_SEL,
-  RewardInput,
-  Section,
-  rewardAmount,
-  round2,
-  type ItemSel,
-  type RewardType,
-} from "./reward-parts";
+import { Amount, Section, round2 } from "./reward-parts";
 
-// One row per product: a product picked as loose pieces AND boxes is one
-// product to reward, like on an invoice.
+// The reward is a $ rate per unit, so loose pieces and boxes of the same
+// product are separate lines, each with its own rate.
+type UnitLine = {
+  key: string;
+  product_id: number;
+  unit_id: number | null;
+  unit_name: string;
+  quantity: number;
+};
+// Grouped per product for display (name once, a row per unit beneath)
 type ProductLine = {
   product_id: number;
   product_name: string;
   parts: PickedLine[];
+  units: UnitLine[];
   line_total: number;
 };
+
+const unitKey = (productId: number, unitId: number | null) =>
+  `${productId}:${unitId ?? 0}`;
 
 // Bonus on items picked in the POS (the default tab). The items are only the
 // basis to reward, not a sale: nothing here touches stock, invoices or money.
 // The list lives in the browser per client until the bonus is saved.
+// ONE reward kind (owner 2026-10-08): $ per unit × the quantity picked.
 export default function PickedItemsBonus({
   client,
   onSaved,
@@ -50,11 +54,9 @@ export default function PickedItemsBonus({
   const router = useRouter();
   const [picked, setPicked] = useState<PickedLine[]>([]);
 
-  const [totType, setTotType] = useState<RewardType>("percent");
-  const [totPct, setTotPct] = useState<number | null>(null);
-  const [totAmt, setTotAmt] = useState<number | null>(null);
-  const [sel, setSel] = useState<Record<number, ItemSel>>({});
-  const [bulkPct, setBulkPct] = useState<number | null>(null);
+  // $ per unit, keyed by product + unit
+  const [rates, setRates] = useState<Record<string, number | null>>({});
+  const [bulkRate, setBulkRate] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -70,55 +72,39 @@ export default function PickedItemsBonus({
         product_id: l.product_id,
         product_name: l.product_name,
         parts: [],
+        units: [],
         line_total: 0,
       };
       line.parts.push(l);
       line.line_total = round2(line.line_total + l.quantity * l.price);
+      const key = unitKey(l.product_id, l.unit_id);
+      const unit = line.units.find((u) => u.key === key);
+      if (unit) unit.quantity += l.quantity;
+      else
+        line.units.push({
+          key,
+          product_id: l.product_id,
+          unit_id: l.unit_id,
+          unit_name: l.unit_name,
+          quantity: l.quantity,
+        });
       map.set(l.product_id, line);
     }
     return [...map.values()];
   }, [picked]);
+  const unitLines = useMemo(() => lines.flatMap((l) => l.units), [lines]);
   const basis = round2(lines.reduce((s, l) => s + l.line_total, 0));
 
-  const updateSel = (id: number, patch: Partial<ItemSel>) =>
-    setSel((prev) => ({
-      ...prev,
-      [id]: { ...(prev[id] ?? EMPTY_SEL), ...patch },
-    }));
-  const tickAll = (on: boolean) =>
-    setSel((prev) => {
-      const next = { ...prev };
-      for (const l of lines)
-        next[l.product_id] = {
-          ...(next[l.product_id] ?? EMPTY_SEL),
-          include: on,
-        };
-      return next;
-    });
-  const applyBulkPct = () => {
-    if (!bulkPct || bulkPct <= 0 || bulkPct > 100) return;
-    setSel((prev) => {
-      const next = { ...prev };
-      for (const [k, s] of Object.entries(next))
-        if (s.include)
-          next[Number(k)] = { ...s, type: "percent", pct: bulkPct };
-      return next;
-    });
+  const unitAmount = (u: UnitLine) => {
+    const r = rates[u.key];
+    return r && r > 0 ? round2(u.quantity * r) : 0;
   };
-
-  const lineAmount = (l: ProductLine) => {
-    const s = sel[l.product_id];
-    return s?.include ? rewardAmount(s.type, s.pct, s.amount, l.line_total) : 0;
+  const applyBulkRate = () => {
+    if (!bulkRate || bulkRate <= 0) return;
+    setRates(Object.fromEntries(unitLines.map((u) => [u.key, bulkRate])));
   };
-  const ticked = lines.filter((l) => sel[l.product_id]?.include).length;
-  const rewardedLines = lines.filter((l) => lineAmount(l) > 0);
-  const itemsAmount = round2(
-    rewardedLines.reduce((s, l) => s + lineAmount(l), 0),
-  );
-  const totalReward = lines.length
-    ? rewardAmount(totType, totPct, totAmt, basis)
-    : 0;
-  const totalAmount = round2(itemsAmount + totalReward);
+  const rewarded = unitLines.filter((u) => unitAmount(u) > 0);
+  const totalAmount = round2(rewarded.reduce((s, u) => s + unitAmount(u), 0));
   const canSave = totalAmount > 0;
 
   const openPos = () => {
@@ -140,9 +126,8 @@ export default function PickedItemsBonus({
   const reset = () => {
     writePicked(client.id, []);
     setPicked([]);
-    setSel({});
-    setTotPct(null);
-    setTotAmt(null);
+    setRates({});
+    setBulkRate(null);
     setNote("");
   };
 
@@ -158,24 +143,12 @@ export default function PickedItemsBonus({
           quantity: l.quantity,
           price: l.price,
         })),
-        level1:
-          totalReward > 0
-            ? {
-                type: totType,
-                pct: totType === "percent" ? totPct : null,
-                amount: totType === "fixed" ? totAmt : null,
-              }
-            : null,
         note: note.trim() || null,
-        items: rewardedLines.map((l) => {
-          const s = sel[l.product_id];
-          return {
-            product_id: l.product_id,
-            bonus_type: s.type,
-            pct: s.type === "percent" ? s.pct : null,
-            amount: s.type === "fixed" ? s.amount : null,
-          };
-        }),
+        items: rewarded.map((u) => ({
+          product_id: u.product_id,
+          unit_id: u.unit_id,
+          rate: rates[u.key],
+        })),
       })
       .then(({ data }) => {
         toast.success(t("Saved"));
@@ -185,8 +158,6 @@ export default function PickedItemsBonus({
       .catch((err) => toast.error(apiError(err)))
       .finally(() => setSaving(false));
   };
-
-  const allTicked = lines.length > 0 && ticked === lines.length;
 
   return (
     <>
@@ -272,7 +243,7 @@ export default function PickedItemsBonus({
             )}
           </Section>
 
-          {/* ── 2. Rewards: on the total and/or per product ── */}
+          {/* ── 2. Reward: $ per unit × the quantity picked ── */}
           <Section n={2} title={t("Reward")}>
             {lines.length === 0 ? (
               <div className="px-4 pt-4">
@@ -281,128 +252,73 @@ export default function PickedItemsBonus({
                 </p>
               </div>
             ) : (
-              <div>
-                <div className="px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="min-w-0 text-lg font-semibold text-fg">
-                      {t("On the total")}
-                      <span className="tabular text-sm ml-1.5 font-normal text-fg-subtle">
-                        ({money(basis)})
-                      </span>
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <RewardInput
-                        label={t("On the total")}
-                        type={totType}
-                        pct={totPct}
-                        amount={totAmt}
-                        onType={setTotType}
-                        onPct={setTotPct}
-                        onAmount={setTotAmt}
-                      />
-                      <Amount value={totalReward} />
-                    </div>
+              <div className="border-b border-line">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-sunken px-4 py-3">
+                  <span className="text-sm font-medium text-fg">
+                    {t("All products")}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <InputNumber
+                      min={0}
+                      step={0.05}
+                      precision={2}
+                      className="w-28! py-0.75!"
+                      prefix="$"
+                      placeholder="0.00"
+                      value={bulkRate}
+                      onChange={setBulkRate}
+                      onPressEnter={applyBulkRate}
+                      size="small"
+                      aria-label={t("Bonus per unit for all products")}
+                    />
+                    <Button
+                      type="primary"
+                      size={"small"}
+                      disabled={!bulkRate || bulkRate <= 0}
+                      onClick={applyBulkRate}
+                    >
+                      {t("Apply")}
+                    </Button>
                   </div>
                 </div>
-
-                <Divider className="my-0!">
-                  <p className="w-full text-center text-sm text-fg-subtle">
-                    {t("Or")}
-                  </p>
-                </Divider>
-
-                <div className="border-b border-line">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-                    <label className="flex min-h-8 cursor-pointer items-center gap-2">
-                      <Checkbox
-                        checked={allTicked}
-                        indeterminate={ticked > 0 && !allTicked}
-                        onChange={(e) => tickAll(e.target.checked)}
-                      />
-                      <span className="text-lg font-semibold text-fg">
-                        {t("Per product")}
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-fg-muted">
-                      {t("All ticked")}
-                      <InputNumber
-                        min={0}
-                        max={100}
-                        step={0.5}
-                        className="w-24!"
-                        suffix="%"
-                        placeholder="0"
-                        value={bulkPct}
-                        onChange={setBulkPct}
-                      />
-                      <Button
-                        disabled={!bulkPct || ticked === 0}
-                        onClick={applyBulkPct}
-                        size="small"
-                        type="primary"
-                      >
-                        {t("Apply")}
-                      </Button>
-                    </label>
-                  </div>
-                  <ul className="divide-y divide-line">
-                    {lines.map((l) => {
-                      const s = sel[l.product_id];
-                      return (
-                        <li
-                          key={l.product_id}
-                          className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 transition-colors duration-150 ${
-                            s?.include ? "bg-brand-soft/30" : ""
-                          }`}
-                        >
-                          <label className="flex min-h-10 min-w-0 flex-[1_1_14rem] cursor-pointer items-center gap-3">
-                            <Checkbox
-                              checked={!!s?.include}
-                              onChange={(e) =>
-                                updateSel(l.product_id, {
-                                  include: e.target.checked,
-                                })
-                              }
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium text-fg">
-                                {l.product_name}
-                              </span>
-                              <span className="tabular block text-xs text-fg-subtle">
-                                {l.parts
-                                  .map(
-                                    (p) => `${num(p.quantity)} ${p.unit_name}`,
-                                  )
-                                  .join(" + ")}{" "}
-                                · {money(l.line_total)}
-                              </span>
+                <ul className="divide-y divide-line">
+                  {lines.map((l) => (
+                    <li
+                      key={l.product_id}
+                      className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3"
+                    >
+                      <p className="min-w-0 flex-[1_1_12rem] truncate pt-2 text-sm font-medium text-fg">
+                        {l.product_name}
+                      </p>
+                      <div className="ml-auto flex flex-col gap-2">
+                        {l.units.map((u) => (
+                          <div
+                            key={u.key}
+                            className="flex items-center justify-end gap-2"
+                          >
+                            <span className="tabular text-sm text-fg-muted">
+                              {num(u.quantity)} {u.unit_name} ×
                             </span>
-                          </label>
-                          {s?.include && (
-                            <div className="ml-auto flex items-center gap-2">
-                              <RewardInput
-                                label={l.product_name}
-                                type={s.type}
-                                pct={s.pct}
-                                amount={s.amount}
-                                onType={(v) =>
-                                  updateSel(l.product_id, { type: v })
-                                }
-                                onPct={(v) =>
-                                  updateSel(l.product_id, { pct: v })
-                                }
-                                onAmount={(v) =>
-                                  updateSel(l.product_id, { amount: v })
-                                }
-                              />
-                              <Amount value={lineAmount(l)} />
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
+                            <InputNumber
+                              min={0}
+                              step={0.05}
+                              precision={2}
+                              className="w-28!"
+                              prefix="$"
+                              placeholder="0.00"
+                              value={rates[u.key] ?? null}
+                              onChange={(v) =>
+                                setRates((prev) => ({ ...prev, [u.key]: v }))
+                              }
+                              aria-label={`${l.product_name}: ${t("per unit")} (${u.unit_name})`}
+                            />
+                            <Amount value={unitAmount(u)} />
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </Section>
@@ -427,18 +343,11 @@ export default function PickedItemsBonus({
                 </dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-fg-muted">{t("On the total")}</dt>
+                <dt className="text-fg-muted">{t("Rewarded")}</dt>
                 <dd className="tabular text-fg">
-                  {totalReward > 0 ? money(totalReward) : "—"}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-fg-muted">
-                  {t("Per product")}
-                  {rewardedLines.length ? ` (${rewardedLines.length})` : ""}
-                </dt>
-                <dd className="tabular text-fg">
-                  {itemsAmount > 0 ? money(itemsAmount) : "—"}
+                  {rewarded.length
+                    ? `${num(rewarded.length)} / ${num(unitLines.length)}`
+                    : "—"}
                 </dd>
               </div>
             </dl>

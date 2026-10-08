@@ -11,10 +11,15 @@ function parseTemplate(row) {
   return { ...row, elements: Array.isArray(elements) ? elements : [] };
 }
 
-export async function listTemplates(_req, res) {
+// Two kinds share the table: 'invoice' layouts and 'bonus' award layouts. Each
+// kind has its own default; a list/create without a kind means 'invoice', so
+// every invoice caller keeps working unchanged.
+const kindOf = (v) => (v === "bonus" ? "bonus" : "invoice");
+
+export async function listTemplates(req, res) {
   const [rows] = await pool.query(
-    "SELECT * FROM invoice_templates WHERE business_id = ? ORDER BY is_default DESC, name",
-    [BUSINESS_ID]
+    "SELECT * FROM invoice_templates WHERE business_id = ? AND kind = ? ORDER BY is_default DESC, name",
+    [BUSINESS_ID, kindOf(req.query.kind)]
   );
   res.json(rows.map(parseTemplate));
 }
@@ -37,21 +42,22 @@ function readBody(body) {
 export async function createTemplate(req, res) {
   const { name, elements } = readBody(req.body);
   const makeDefault = !!req.body?.is_default;
+  const kind = kindOf(req.body?.kind);
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    // First template for a business is default automatically
+    // First template of a kind is that kind's default automatically
     const [[{ count }]] = await conn.query(
-      "SELECT COUNT(*) AS count FROM invoice_templates WHERE business_id = ?", [BUSINESS_ID]
+      "SELECT COUNT(*) AS count FROM invoice_templates WHERE business_id = ? AND kind = ?", [BUSINESS_ID, kind]
     );
     const isDefault = makeDefault || count === 0 ? 1 : 0;
     if (isDefault) {
-      await conn.query("UPDATE invoice_templates SET is_default = 0 WHERE business_id = ?", [BUSINESS_ID]);
+      await conn.query("UPDATE invoice_templates SET is_default = 0 WHERE business_id = ? AND kind = ?", [BUSINESS_ID, kind]);
     }
     const [result] = await conn.query(
-      "INSERT INTO invoice_templates (business_id, name, is_default, elements, created_by) VALUES (?, ?, ?, ?, ?)",
-      [BUSINESS_ID, name, isDefault, elements, req.user.id]
+      "INSERT INTO invoice_templates (business_id, kind, name, is_default, elements, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+      [BUSINESS_ID, kind, name, isDefault, elements, req.user.id]
     );
     await conn.commit();
     emitToAdmins("template:changed", { type: "create", id: result.insertId });
@@ -80,10 +86,10 @@ export async function setDefaultTemplate(req, res) {
   try {
     await conn.beginTransaction();
     const [[row]] = await conn.query(
-      "SELECT id FROM invoice_templates WHERE id = ? AND business_id = ?", [req.params.id, BUSINESS_ID]
+      "SELECT id, kind FROM invoice_templates WHERE id = ? AND business_id = ?", [req.params.id, BUSINESS_ID]
     );
     if (!row) { await conn.rollback(); return res.status(404).json({ message: "Template not found" }); }
-    await conn.query("UPDATE invoice_templates SET is_default = 0 WHERE business_id = ?", [BUSINESS_ID]);
+    await conn.query("UPDATE invoice_templates SET is_default = 0 WHERE business_id = ? AND kind = ?", [BUSINESS_ID, row.kind]);
     await conn.query("UPDATE invoice_templates SET is_default = 1 WHERE id = ? AND business_id = ?",
       [req.params.id, BUSINESS_ID]);
     await conn.commit();
@@ -102,15 +108,20 @@ export async function deleteTemplate(req, res) {
   try {
     await conn.beginTransaction();
     const [[row]] = await conn.query(
-      "SELECT is_default FROM invoice_templates WHERE id = ? AND business_id = ?", [req.params.id, BUSINESS_ID]
+      "SELECT is_default, kind FROM invoice_templates WHERE id = ? AND business_id = ?", [req.params.id, BUSINESS_ID]
     );
     if (!row) { await conn.rollback(); return res.status(404).json({ message: "Template not found" }); }
+    // Each kind always keeps one template (owner 2026-10-08)
+    const [[{ count }]] = await conn.query(
+      "SELECT COUNT(*) AS count FROM invoice_templates WHERE business_id = ? AND kind = ?", [BUSINESS_ID, row.kind]
+    );
+    if (count <= 1) { await conn.rollback(); return res.status(400).json({ message: "Keep at least one template" }); }
     await conn.query("DELETE FROM invoice_templates WHERE id = ? AND business_id = ?",
       [req.params.id, BUSINESS_ID]);
-    // If we removed the default, promote the next remaining template
+    // If we removed the default, promote the next remaining template of that kind
     if (row.is_default) {
       const [[next]] = await conn.query(
-        "SELECT id FROM invoice_templates WHERE business_id = ? ORDER BY id LIMIT 1", [BUSINESS_ID]
+        "SELECT id FROM invoice_templates WHERE business_id = ? AND kind = ? ORDER BY id LIMIT 1", [BUSINESS_ID, row.kind]
       );
       if (next) {
         await conn.query("UPDATE invoice_templates SET is_default = 1 WHERE id = ?", [next.id]);

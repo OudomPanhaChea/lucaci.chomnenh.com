@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-10-05 (pre-deploy test pass, migration rewrite, deployed)
+> Last updated: 2026-10-08 (bonus templates in Settings, one-click Add template)
 
 ## 1. What this project is
 
@@ -1742,6 +1742,58 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   manager pages by URL (server 403s the data); deleting a client leaves its
   deposit/owing payments rows with `client_id` NULL. Dev server only: an occasional
   document 500 that never reproduced on `next start`.
+
+### Done (2026-10-08): picked-items bonus = one reward, $ per unit x qty
+- Owner asked to replace the Items tab's two rewards (On the total / Per product, %
+  or $) with ONE: a dollar rate per unit on each product line, bonus = quantity x
+  rate, plus an "All products [$] per unit [Apply]" bar that fills every line (a
+  line left empty or 0 is skipped; no checkboxes). A product picked in two units
+  (pcs + Box) is two lines with their own rate, because pcs and boxes are never
+  summed. The Invoices tab is unchanged.
+- **Migration `2026-10-08-bonus-unit-rate.sql`** (applied locally; **run on prod
+  BEFORE deploying the API**): `bonus_items.unit_rate DECIMAL(10,2) NULL`.
+  `createPickedBonus` now takes `items: [{product_id, unit_id, rate}]` (no level1,
+  no %), stores one row per product + unit (`bonus_type 'fixed'`, `unit_rate`,
+  `amount = qty x rate`, `qty_desc` "10 Box", `pieces` in base units). The bonus
+  paper's Basis column prints `money(unit_rate)` when set; older rows print as before.
+- Verified: API smoke 9/9 (scratchpad `smoke-rate.mjs`: no reward / zero rate /
+  unpicked unit rejected, 20 x $0.10 + 10 x $1 + 3 x $0.50 = $13.50) + headless UI
+  15/15 (`verify-rate-ui.js`: old rewards gone, 3 rate inputs, Apply fills all,
+  totals live, emptied line skipped, server total matches, paper prints rates,
+  0px overflow at 390). `tsc` + `next build` pass. Local API was again plain
+  `node` (stale); restarted under nodemon.
+
+### Done (2026-10-08, batch 2): bonus templates editable in Settings
+- `invoice_templates.kind ENUM('invoice','bonus')` (**migration
+  `2026-10-08-template-kind.sql`, run on prod BEFORE deploying the API**; every
+  existing row becomes 'invoice'). Each kind has its OWN default: create/default/
+  delete-promotion are scoped by kind. `GET /invoice-templates?kind=bonus`; a call
+  without `kind` means 'invoice', so every invoice caller is unchanged.
+- Settings has a second card, **Bonus template**: the same `TemplateManager`
+  with `kind="bonus"` (no KHQR block, no "Templates" sub-label). The editor previews
+  `sampleBonusData()` (bonus-data.ts: 3 picked lines, $31.00) instead of the sample
+  invoice, so the invoice preview knobs are off for bonus templates.
+- **Add template is one click, no layout menu** (owner, both cards). A new invoice
+  template = the Modern preset; a new bonus template = a copy of the default invoice
+  template (falls back to Modern) passed through `bonusElements()` (BONUS title,
+  Awarded To, no due date, Total Bonus rows), then freely editable. Names
+  "Invoice"/"Bonus", then "Invoice 2"... (rename in the editor).
+- **Each kind always has one template** (owner): when a Settings card loads an
+  empty list it creates one right away (same recipe as Add template, once per
+  mount via a ref, no toast), the Delete button is hidden on the last template, and
+  `DELETE /invoice-templates/:id` refuses the last of its kind with 400 "Keep at
+  least one template" (Khmer in serverMessages). So a bonus template appears the
+  first time the owner opens Settings after deploy; until then the paper fallback
+  below still covers it. Verified headless (`verify-one-tpl.js`, 12/12).
+- `BonusPaperModal` prints from bonus templates EXACTLY as designed (default
+  first, picker lists bonus templates). With no bonus template yet it falls back to
+  the old behaviour (invoice templates + `bonusElements` re-wording,
+  `defaultBonusTemplateId` name match), so nothing changes on deploy.
+- Verified headless (scratchpad `verify-bonus-tpl.js`, 16/16): bonus card + empty
+  state, one-click add on both cards with no menu, bonus title BONUS + no due date,
+  invoice templates and their default untouched, editor previews the sample bonus,
+  rename saves, a bonus paper prints the bonus template's own edited title, cleanup.
+  `tsc` + `next build` pass.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;
