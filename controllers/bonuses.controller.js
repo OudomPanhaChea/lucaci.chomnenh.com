@@ -308,17 +308,18 @@ export async function createBonus(req, res) {
 
 // POST /bonuses with `lines` — an award on items picked in the POS, NOT on
 // invoices (owner 2026-10-05): the lines are only the basis to reward (what the
-// client is buying, at the price agreed), so nothing is sold, no stock moves
-// and no money is recorded. Rewards work like the invoice flow: level1 = % of
-// the lines' total or a fixed amount; items = per product (a product picked in
-// several units is one line, "2 Box of 12 + 5 pcs").
+// client is buying), so nothing is sold, no stock moves and no money is
+// recorded. ONE reward kind (owner 2026-10-08): a dollar rate per unit on each
+// product + unit line, bonus = quantity x rate ("50 Box x $0.50 = $25.00"). A
+// product picked in two units is two lines with their own rate.
 // Stored with invoice_count 0 and invoice_numbers [] (that is what marks a
-// picked-items award), period = today, bonus_items.sale_id NULL / invoice_number ''.
+// picked-items award), period = today, one bonus_items row per rewarded
+// product + unit (sale_id NULL, invoice_number '', bonus_type 'fixed',
+// unit_rate = the rate).
 // Body: { client_id, lines: [{ product_id, unit_id?, quantity, price }], note?,
-//         level1?: { type, pct?, amount? } | null,
-//         items?: [{ product_id, bonus_type, pct?, amount? }] }
+//         items: [{ product_id, unit_id?, rate }] }
 async function createPickedBonus(req, res) {
-  const { client_id, lines, level1 = null, note = null, items = [] } = req.body;
+  const { client_id, lines, note = null, items = [] } = req.body;
   if (!Array.isArray(items)) return res.status(400).json({ message: "Invalid bonus items" });
   if (lines.length === 0) return res.status(400).json({ message: "Add at least one item" });
   for (const l of lines) {
@@ -349,71 +350,63 @@ async function createPickedBonus(req, res) {
     );
     const productById = new Map(products.map((p) => [p.id, p]));
 
-    // One line per product, in pick order; names and units resolved here
-    const byProduct = new Map();
+    // One line per product + unit, names and units resolved here
+    const keyOf = (productId, unitId) => `${Number(productId)}:${unitId ? Number(unitId) : 0}`;
+    const byUnit = new Map();
     for (const l of lines) {
       const product = productById.get(Number(l.product_id));
       if (!product) return await fail(400, `Product #${Number(l.product_id)} is not available`);
       const unit = l.unit_id ? units.find((u) => u.id === Number(l.unit_id) && u.product_id === product.id) : null;
       if (l.unit_id && !unit) return await fail(400, `Invalid unit for "${product.name}"`);
-      const qty = Number(l.quantity);
-      let line = byProduct.get(product.id);
+      const key = keyOf(product.id, unit?.id);
+      let line = byUnit.get(key);
       if (!line) {
-        line = { product, parts: [], pieces: 0, line_total: 0 };
-        byProduct.set(product.id, line);
+        line = { product, unit_name: unit?.name ?? null, factor: unit ? Number(unit.factor) : 1, qty: 0, line_total: 0 };
+        byUnit.set(key, line);
       }
-      line.parts.push({ unit_name: unit?.name ?? null, qty });
-      line.pieces += qty * (unit ? Number(unit.factor) : 1);
+      const qty = Number(l.quantity);
+      line.qty += qty;
       line.line_total = round2(line.line_total + qty * Number(l.price));
     }
-    const basisTotal = round2([...byProduct.values()].reduce((s, l) => s + l.line_total, 0));
-
-    let l1Type = null;
-    let l1Pct = null;
-    let l1Amount = 0;
-    if (level1) {
-      l1Type = level1.type === "fixed" ? "fixed" : "percent";
-      const v = rewardValue(l1Type, level1.pct, level1.amount, basisTotal, "Total bonus");
-      if (v.error) return await fail(400, v.error);
-      l1Pct = v.pct;
-      l1Amount = v.amount;
-    }
+    const basisTotal = round2([...byUnit.values()].reduce((s, l) => s + l.line_total, 0));
 
     const itemRows = [];
+    const seen = new Set();
     let itemsAmount = 0;
     for (const it of items) {
-      const line = byProduct.get(Number(it.product_id));
+      const key = keyOf(it.product_id, it.unit_id);
+      const line = byUnit.get(key);
       if (!line) return await fail(400, "A rewarded product is not in the items");
-      const type = it.bonus_type === "fixed" ? "fixed" : "percent";
-      const v = rewardValue(type, it.pct, it.amount, line.line_total, line.product.name);
-      if (v.error) return await fail(400, v.error);
-      itemsAmount = round2(itemsAmount + v.amount);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const rate = round2(it.rate);
+      if (!(rate > 0)) return await fail(400, `${line.product.name}: the bonus per unit must be greater than zero`);
+      const amount = round2(line.qty * rate);
+      itemsAmount = round2(itemsAmount + amount);
       itemRows.push([
-        BUSINESS_ID, null, "", line.product.id, line.product.name, Math.round(line.pieces),
-        composeQtyDesc(line.parts, line.product.base_unit), line.line_total, type, v.pct, v.amount,
+        BUSINESS_ID, null, "", line.product.id, line.product.name, Math.round(line.qty * line.factor),
+        composeQtyDesc([{ qty: line.qty, unit_name: line.unit_name }], line.product.base_unit),
+        line.line_total, "fixed", null, rate, amount,
       ]);
     }
 
-    const totalAmount = round2(l1Amount + itemsAmount);
-    if (!(totalAmount > 0)) return await fail(400, "Add at least one reward");
+    if (!(itemsAmount > 0)) return await fail(400, "Add at least one reward");
 
     const [result] = await conn.query(
       `INSERT INTO bonuses (business_id, client_id, client_name, period_from, period_to,
                             invoice_count, invoice_total, invoice_numbers, level1_type,
                             level1_pct, level1_amount, items_amount, total_amount,
                             note, user_id, created_by)
-       VALUES (?, ?, ?, CURDATE(), CURDATE(), 0, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [BUSINESS_ID, client.id, client.name, basisTotal, l1Type, l1Pct, l1Amount, itemsAmount,
-       totalAmount, note || null, req.user.id, req.user.name]
+       VALUES (?, ?, ?, CURDATE(), CURDATE(), 0, ?, '[]', NULL, NULL, 0, ?, ?, ?, ?, ?)`,
+      [BUSINESS_ID, client.id, client.name, basisTotal, itemsAmount, itemsAmount,
+       note || null, req.user.id, req.user.name]
     );
-    if (itemRows.length) {
-      await conn.query(
-        `INSERT INTO bonus_items (bonus_id, business_id, sale_id, invoice_number, product_id,
-                                  product_name, pieces, qty_desc, line_total, bonus_type, pct, amount)
-         VALUES ${itemRows.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
-        itemRows.flatMap((row) => [result.insertId, ...row])
-      );
-    }
+    await conn.query(
+      `INSERT INTO bonus_items (bonus_id, business_id, sale_id, invoice_number, product_id, product_name,
+                                pieces, qty_desc, line_total, bonus_type, pct, unit_rate, amount)
+       VALUES ${itemRows.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+      itemRows.flatMap((row) => [result.insertId, ...row])
+    );
 
     const [[bonus]] = await conn.query("SELECT * FROM bonuses WHERE id = ?", [result.insertId]);
     const [bonusItems] = await conn.query(
