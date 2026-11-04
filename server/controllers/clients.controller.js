@@ -1,7 +1,6 @@
 import pool from "../config/db.js";
 import { BUSINESS_ID } from "../config/business.js";
 import { emitToAdmins } from "../config/socket.js";
-import { mergeUnitRows } from "../config/units.js";
 
 export async function listClients(req, res) {
   const { search } = req.query;
@@ -112,27 +111,67 @@ export async function clientStatement(req, res) {
   );
 
   const itemsRangeSql = rangeSql.replaceAll("created_at", "s.created_at");
-  // What this client buys: every product across the period's non-voided
-  // invoices, in base pieces, ranked by the amount spent on it.
-  // Quantities stay in the units the client actually bought ("1000 Box of 12
-  // + 5 pcs"), never converted to base units: per-unit rows merged per product.
-  const [productUnitRows] = await pool.query(
-    `SELECT si.product_id, si.name_snapshot AS name, si.unit_name,
+  // What this client buys: one row per product + unit (pcs and boxes are
+  // never summed) + free flag, most quantity first. Rows are keyed by what the
+  // product and unit ARE TODAY and show their current names, so a product or
+  // unit renamed after the sale merges into the same row instead of looking
+  // like a different item. sale_items only snapshot the unit NAME (units are
+  // replaced on every product save), so a unit resolves by name first, then
+  // to the product's ONLY unit of the same size (unit_factor). `unit_id` lets
+  // a row seed a picked-items bonus; NULL with a unit_name = unit is gone.
+  const [itemRows] = await pool.query(
+    `SELECT si.product_id, si.name_snapshot, si.unit_name, si.unit_factor, si.is_bonus,
+            MAX(p.name)                       AS product_name,
             COALESCE(MAX(p.base_unit), 'pcs') AS base_unit,
+            MAX(p.is_deleted)                 AS is_deleted,
             SUM(si.quantity)                  AS qty,
             SUM(si.line_total)                AS total
      FROM sale_items si JOIN sales s ON s.id = si.sale_id
      LEFT JOIN products p ON p.id = si.product_id
      WHERE s.client_id = ? AND s.business_id = ? AND s.status <> 'voided'${itemsRangeSql}
-     GROUP BY si.product_id, si.name_snapshot, si.unit_name
-     ORDER BY total DESC LIMIT 300`,
+     GROUP BY si.product_id, si.name_snapshot, si.unit_name, si.unit_factor, si.is_bonus
+     LIMIT 1000`,
     [id, BUSINESS_ID, ...rangeParams]
   );
-  const products = mergeUnitRows(
-    productUnitRows,
-    (r) => `${r.product_id ?? "x"}|${r.name}`,
-    ["total"]
-  ).sort((a, b) => b.total - a.total).slice(0, 100);
+  const unitProductIds = [...new Set(itemRows.filter((r) => r.unit_name && r.product_id).map((r) => r.product_id))];
+  const [currentUnits] = unitProductIds.length
+    ? await pool.query(
+        "SELECT id, product_id, name, factor FROM product_units WHERE product_id IN (?) ORDER BY id",
+        [unitProductIds]
+      )
+    : [[]];
+  const merged = new Map();
+  for (const r of itemRows) {
+    let unit = null;
+    if (r.unit_name && r.product_id) {
+      const own = currentUnits.filter((u) => u.product_id === r.product_id);
+      const sameSize = own.filter((u) => Number(u.factor) === Number(r.unit_factor));
+      unit = own.find((u) => u.name === r.unit_name) ?? (sameSize.length === 1 ? sameSize[0] : null);
+    }
+    const productKey = r.product_id != null ? `p${r.product_id}` : `n:${r.name_snapshot}`;
+    const unitKey = unit ? `u${unit.id}` : r.unit_name ? `x:${r.unit_name}` : "base";
+    const key = `${productKey}|${unitKey}|${r.is_bonus ? 1 : 0}`;
+    let row = merged.get(key);
+    if (!row) {
+      row = {
+        product_id: r.product_id,
+        name: r.product_name ?? r.name_snapshot,
+        unit_name: unit?.name ?? r.unit_name ?? null,
+        unit_id: unit?.id ?? null,
+        base_unit: r.base_unit,
+        is_bonus: !!r.is_bonus,
+        is_deleted: !!r.is_deleted,
+        qty: 0,
+        total: 0,
+      };
+      merged.set(key, row);
+    }
+    row.qty += Number(r.qty);
+    row.total = Math.round((row.total + Number(r.total)) * 100) / 100;
+  }
+  const products = [...merged.values()]
+    .sort((a, b) => b.qty - a.qty || b.total - a.total)
+    .slice(0, 300);
 
   const [[period]] = await pool.query(
     `SELECT COUNT(CASE WHEN status <> 'voided' THEN 1 END) AS invoice_count,

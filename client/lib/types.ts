@@ -158,13 +158,26 @@ export interface Sale {
   payments?: Payment[];
 }
 
+export interface ClientProductRow {
+  product_id: number | null;
+  name: string;
+  unit_name: string | null;
+  unit_id: number | null;
+  base_unit: string | null;
+  is_bonus: boolean;
+  is_deleted: boolean;
+  qty: number;
+  total: number;
+}
+
 export interface ClientStatement {
   client: Client;
   sales: Sale[];
   payments: Payment[];
-  // Per-product breakdown of everything bought in the period, by total desc;
-  // qty_desc lists the units as sold ("1000 Box of 12 + 5 pcs")
-  products: { product_id: number | null; name: string; base_unit?: string | null; qty: number; qty_desc: string; total: number }[];
+  // Everything bought in the period, one row per product + unit (+ free
+  // flag), most quantity first, under CURRENT names (renamed products/units
+  // merge into one row). unit_id = null for loose items or a removed unit.
+  products: ClientProductRow[];
   // Partner bonus awards in the period; omitted for cashiers (manager-only data)
   bonuses?: Bonus[];
   period: { invoice_count: number; total_items: number; purchased: number; paid: number; outstanding: number };

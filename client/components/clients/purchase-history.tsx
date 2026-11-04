@@ -176,7 +176,9 @@ export default function PurchaseHistory({
                   </p>
                   <p className="truncate font-mono text-xs text-fg-subtle">
                     {fmtDate(s.created_at, "dd MMM yyyy")}
-                    {s.item_count ? ` · ${t("{n} items", { n: num(s.item_count) })}` : ""}
+                    {s.item_count
+                      ? ` · ${Number(s.item_count) === 1 ? t("1 item") : t("{n} items", { n: num(s.item_count) })}`
+                      : ""}
                   </p>
                 </div>
                 <div className="text-right">

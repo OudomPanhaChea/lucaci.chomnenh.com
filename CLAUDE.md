@@ -1,7 +1,7 @@
 # Chamnenh POS — Project Brief for Claude Code
 
 > Read this first. Keep it updated whenever architecture, conventions, or status change.
-> Last updated: 2026-10-08 (bonus templates in Settings, one-click Add template)
+> Last updated: 2026-11-04 (client Products tab = invoice table + select to bonus)
 
 ## 1. What this project is
 
@@ -1794,6 +1794,28 @@ into the owner's reports, and 2 staging apps + 2 for a real second business exce
   invoice templates and their default untouched, editor previews the sample bonus,
   rename saves, a bonus paper prints the bonus template's own edited title, cleanup.
   `tsc` + `next build` pass.
+
+### Done (2026-11-04): client Products tab = invoice table + tick rows to bonus
+- `components/clients/products-rank.tsx` is now an invoice-style table (no progress
+  bars): checkbox / # / Product / Qty / Price / Amount + Total footer, most quantity
+  first. One row per product + unit (pcs and boxes never summed) + FREE flag; Price =
+  amount / qty (free lines print "Free").
+- **Rows use CURRENT names** (owner rule): `clientStatement` keys rows by what the
+  product and unit are today, so a product or unit renamed after the sale merges into
+  the same row ("100 កេះ" + "10 កេស" = "110 កេស"). sale_items only snapshot the unit
+  name, so the unit resolves by name, else to the product's ONLY unit with the same
+  `unit_factor`. `products[]` shape changed: `{product_id, name, unit_name, unit_id,
+  base_unit, is_bonus, is_deleted, qty, total}` (no more merged `qty_desc`); the tab
+  count counts distinct products.
+- Managers tick rows (Select all bar like the Invoices tab) and press **Bonus**: the
+  rows are written as the client's picked list (`writePicked`, REPLACES any unsaved
+  list) and the bonus page opens on the Items tab. Not tickable: FREE lines, deleted
+  products, a unit that no longer exists at all.
+- Wording pass on the client page: owing card "Incl. $X previous" became
+  "Previous owing $X", summary strip "Items" became "Products" (matches the tab),
+  invoice rows say "1 item" (was "1 items").
+- Verified headless (scratchpad `verify-products-tab.js`, 10/10). `tsc` + `next build`
+  pass. API change only in the statement query (no migration); needs API redeploy.
 
 ### Pending / decisions to revisit
 - Manifest is served `text/plain` in production (batch 6). Harmless for Chromium;

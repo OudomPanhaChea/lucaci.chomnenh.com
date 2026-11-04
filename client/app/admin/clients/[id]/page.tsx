@@ -193,7 +193,7 @@ export default function ClientDetailsPage() {
               {oldOwing > 0 && (
                 <>
                   <p className="tabular mt-0.5 text-xs text-fg-muted">
-                    {t("Incl. {amount} previous", { amount: money(oldOwing) })}
+                    {t("Previous owing {amount}", { amount: money(oldOwing) })}
                   </p>
                   {/* <Button
                     block
@@ -271,7 +271,7 @@ export default function ClientDetailsPage() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-fg-subtle">{t("Items")}</p>
+              <p className="text-xs text-fg-subtle">{t("Products")}</p>
               <p className="tabular font-semibold text-fg">
                 {num(statement.period.total_items)}
               </p>
@@ -328,12 +328,16 @@ export default function ClientDetailsPage() {
               },
               {
                 key: "products",
-                label: `${t("Products")} (${num(statement.products.length)})`,
+                label: `${t("Products")} (${num(
+                  new Set(statement.products.map((p) => p.product_id ?? `n:${p.name}`)).size,
+                )})`,
                 children: (
                   <ProductsRank
+                    clientId={clientId}
                     products={statement.products}
                     loading={stmtLoading}
                     hasRange={!!range}
+                    canBonus={isManager}
                   />
                 ),
               },
